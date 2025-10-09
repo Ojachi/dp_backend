@@ -19,11 +19,15 @@ class ClienteListSerializer(serializers.ModelSerializer):
         return obj.facturas.count()
     
     def get_saldo_pendiente(self, obj):
-        from django.db.models import Sum
-        total = obj.facturas.filter(
+        facturas = obj.facturas.filter(
             estado__in=['pendiente', 'parcial']
-        ).aggregate(total=Sum('saldo_pendiente'))['total']
-        return total or 0
+        ).prefetch_related('pagos')
+        
+        # Calcular saldo pendiente manualmente
+        saldo_total = 0
+        for factura in facturas:
+            saldo_total += factura.saldo_pendiente
+        return saldo_total
 
 class ClienteDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para clientes"""
@@ -46,18 +50,23 @@ class ClienteDetailSerializer(serializers.ModelSerializer):
         stats = facturas.aggregate(
             total_facturas=Count('id'),
             valor_total=Sum('valor_total'),
-            saldo_pendiente=Sum('saldo_pendiente', 
-                              filter=models.Q(estado__in=['pendiente', 'parcial'])),
             facturas_pendientes=Count('id', 
                                     filter=models.Q(estado__in=['pendiente', 'parcial'])),
             facturas_vencidas=Count('id', 
                                   filter=models.Q(estado='vencida'))
         )
         
+        # Calcular saldo pendiente manualmente para facturas pendientes/parciales
+        facturas_pendientes = facturas.filter(
+            estado__in=['pendiente', 'parcial']
+        ).prefetch_related('pagos')
+        
+        saldo_pendiente = sum(factura.saldo_pendiente for factura in facturas_pendientes)
+        
         return {
             'total_facturas': stats['total_facturas'] or 0,
             'valor_total_facturado': stats['valor_total'] or 0,
-            'saldo_pendiente': stats['saldo_pendiente'] or 0,
+            'saldo_pendiente': saldo_pendiente,
             'facturas_pendientes': stats['facturas_pendientes'] or 0,
             'facturas_vencidas': stats['facturas_vencidas'] or 0
         }

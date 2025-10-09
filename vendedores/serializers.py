@@ -42,10 +42,15 @@ class VendedorDetailSerializer(serializers.ModelSerializer):
     
     def get_total_cartera(self, obj):
         from django.db.models import Sum
-        total = obj.usuario.facturas_vendedor.filter(
+        facturas = obj.usuario.facturas_vendedor.filter(
             estado__in=['pendiente', 'parcial']
-        ).aggregate(total=Sum('saldo_pendiente'))['total']
-        return total or 0
+        ).prefetch_related('pagos')
+        
+        # Calcular saldo pendiente manualmente
+        saldo_total = 0
+        for factura in facturas:
+            saldo_total += factura.saldo_pendiente
+        return saldo_total
 
 class VendedorCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer para crear/actualizar vendedores"""

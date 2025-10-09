@@ -32,6 +32,10 @@ class FacturaListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
+        
+        # Actualizar automáticamente facturas vencidas antes de consultar
+        Factura.actualizar_estados_vencidas()
+        
         queryset = Factura.objects.select_related('cliente', 'vendedor', 'distribuidor')
         
         # Filtrar según el rol del usuario
@@ -88,6 +92,10 @@ class FacturaDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         user = self.request.user
+        
+        # Actualizar automáticamente facturas vencidas antes de consultar
+        Factura.actualizar_estados_vencidas()
+        
         queryset = Factura.objects.select_related('cliente', 'vendedor', 'distribuidor')
         
         # Filtrar según el rol del usuario
@@ -139,7 +147,7 @@ def facturas_vencidas(request):
     # Filtrar solo facturas vencidas
     facturas_vencidas = queryset.filter(
         fecha_vencimiento__lt=timezone.now().date(),
-        estado__in=['pendiente', 'parcial']
+        estado__in=['pendiente', 'parcial', 'vencida']  # Incluye 'vencida' ya en BD
     ).order_by('fecha_vencimiento')
     
     serializer = FacturaListSerializer(facturas_vencidas, many=True)

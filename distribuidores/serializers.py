@@ -42,10 +42,15 @@ class DistribuidorDetailSerializer(serializers.ModelSerializer):
     
     def get_total_cartera(self, obj):
         from django.db.models import Sum
-        total = obj.usuario.facturas_distribuidor.filter(
+        facturas = obj.usuario.facturas_distribuidor.filter(
             estado__in=['pendiente', 'parcial']
-        ).aggregate(total=Sum('saldo_pendiente'))['total']
-        return total or 0
+        ).prefetch_related('pagos')
+        
+        # Calcular saldo pendiente manualmente
+        saldo_total = 0
+        for factura in facturas:
+            saldo_total += factura.saldo_pendiente
+        return saldo_total
 
 class DistribuidorCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer para crear/actualizar distribuidores"""

@@ -11,3 +11,7 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return f"{self.name} {self.email}"
+    
+    def get_full_name(self):
+        """Retorna el nombre completo del usuario"""
+        return self.name or self.username or self.email.split('@')[0]

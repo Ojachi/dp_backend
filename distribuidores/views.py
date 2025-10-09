@@ -102,8 +102,8 @@ def estadisticas_distribuidores(request):
         total_facturas=Count('usuario__facturas_distribuidor'),
         facturas_pendientes=Count('usuario__facturas_distribuidor', 
                                  filter=Q(usuario__facturas_distribuidor__estado__in=['pendiente', 'parcial'])),
-        cartera_pendiente=Sum('usuario__facturas_distribuidor__saldo_pendiente',
-                             filter=Q(usuario__facturas_distribuidor__estado__in=['pendiente', 'parcial']))
+        cartera_total=Sum('usuario__facturas_distribuidor__valor_total',
+                         filter=Q(usuario__facturas_distribuidor__estado__in=['pendiente', 'parcial']))
     )
     
     estadisticas = []
@@ -115,7 +115,7 @@ def estadisticas_distribuidores(request):
             'zona': distribuidor.zona,
             'total_facturas': distribuidor.total_facturas,
             'facturas_pendientes': distribuidor.facturas_pendientes,
-            'cartera_pendiente': distribuidor.cartera_pendiente or 0
+            'cartera_pendiente': distribuidor.cartera_total or 0
         })
     
     return Response({

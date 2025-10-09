@@ -6,8 +6,8 @@ from users.serializers import UserBasicSerializer
 class FacturaListSerializer(serializers.ModelSerializer):
     """Serializer para listar facturas con información básica"""
     cliente_nombre = serializers.CharField(source='cliente.nombre', read_only=True)
-    vendedor_nombre = serializers.CharField(source='vendedor.get_full_name', read_only=True)
-    distribuidor_nombre = serializers.CharField(source='distribuidor.get_full_name', read_only=True)
+    vendedor_nombre = serializers.SerializerMethodField()
+    distribuidor_nombre = serializers.SerializerMethodField()
     total_pagado = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     saldo_pendiente = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     esta_vencida = serializers.BooleanField(read_only=True)
@@ -23,6 +23,14 @@ class FacturaListSerializer(serializers.ModelSerializer):
             'creado', 'actualizado'
         ]
         read_only_fields = ['creado', 'actualizado']
+
+    def get_vendedor_nombre(self, obj):
+        """Obtener nombre del vendedor manejando casos null"""
+        return obj.vendedor.get_full_name() if obj.vendedor else None
+
+    def get_distribuidor_nombre(self, obj):
+        """Obtener nombre del distribuidor manejando casos null"""
+        return obj.distribuidor.get_full_name() if obj.distribuidor else None
 
 class FacturaDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para facturas con información completa"""

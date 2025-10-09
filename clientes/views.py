@@ -55,9 +55,7 @@ class ClienteViewSet(viewsets.ModelViewSet):
         stats = queryset.aggregate(
             total_clientes=Count('id'),
             clientes_con_facturas=Count('id', filter=Q(facturas__isnull=False)),
-            valor_total_facturado=Sum('facturas__valor_total'),
-            saldo_pendiente=Sum('facturas__saldo_pendiente',
-                               filter=Q(facturas__estado__in=['pendiente', 'parcial']))
+            valor_total_facturado=Sum('facturas__valor_total')
         )
         
         # Top 5 clientes por valor facturado
@@ -69,12 +67,21 @@ class ClienteViewSet(viewsets.ModelViewSet):
             'id', 'nombre', 'valor_facturado'
         )
         
+        # Calcular saldo pendiente manualmente
+        from facturas.models import Factura
+        facturas_pendientes = Factura.objects.filter(
+            cliente__in=queryset,
+            estado__in=['pendiente', 'parcial']
+        ).prefetch_related('pagos')
+        
+        saldo_total_pendiente = sum(factura.saldo_pendiente for factura in facturas_pendientes)
+        
         return Response({
             'estadisticas_generales': {
                 'total_clientes': stats['total_clientes'] or 0,
                 'clientes_con_facturas': stats['clientes_con_facturas'] or 0,
                 'valor_total_facturado': stats['valor_total_facturado'] or 0,
-                'saldo_pendiente': stats['saldo_pendiente'] or 0
+                'saldo_pendiente': saldo_total_pendiente
             },
             'top_clientes': list(top_clientes)
         })

@@ -55,7 +55,7 @@ class Factura(models.Model):
         """Determina si la factura está vencida"""
         return (
             timezone.now().date() > self.fecha_vencimiento and 
-            self.estado in ['pendiente', 'parcial']
+            self.estado in ['pendiente', 'parcial', 'vencida']  # Incluye 'vencida' ya en BD
         )
     
     @property
@@ -65,7 +65,9 @@ class Factura(models.Model):
         return delta.days
     
     def actualizar_estado(self):
-        """Actualiza el estado de la factura basado en pagos"""
+        """Actualiza el estado de la factura basado en pagos y vencimiento"""
+        estado_anterior = self.estado
+        
         if self.saldo_pendiente <= Decimal('0.00'):
             self.estado = 'pagada'
         elif self.total_pagado > Decimal('0.00'):
@@ -78,7 +80,29 @@ class Factura(models.Model):
                 self.estado = 'vencida'
             else:
                 self.estado = 'pendiente'
-        self.save(update_fields=['estado'])
+        
+        # Solo guardar si el estado cambió
+        if estado_anterior != self.estado:
+            self.save(update_fields=['estado'])
+    
+    @classmethod
+    def actualizar_estados_vencidas(cls):
+        """Método para actualizar masivamente facturas vencidas"""
+        from django.utils import timezone
+        
+        # Obtener facturas que deberían estar vencidas pero no lo están
+        facturas_a_vencer = cls.objects.filter(
+            fecha_vencimiento__lt=timezone.now().date(),
+            estado__in=['pendiente', 'parcial']
+        ).exclude(estado='vencida')
+        
+        # Actualizar sus estados
+        count = 0
+        for factura in facturas_a_vencer:
+            factura.actualizar_estado()
+            count += 1
+        
+        return count
     
     def puede_recibir_pago(self, monto):
         """Valida si puede recibir un pago por el monto especificado"""

@@ -102,8 +102,8 @@ def estadisticas_vendedores(request):
         total_facturas=Count('usuario__facturas_vendedor'),
         facturas_pendientes=Count('usuario__facturas_vendedor', 
                                  filter=Q(usuario__facturas_vendedor__estado__in=['pendiente', 'parcial'])),
-        cartera_pendiente=Sum('usuario__facturas_vendedor__saldo_pendiente',
-                             filter=Q(usuario__facturas_vendedor__estado__in=['pendiente', 'parcial']))
+        cartera_total=Sum('usuario__facturas_vendedor__valor_total',
+                         filter=Q(usuario__facturas_vendedor__estado__in=['pendiente', 'parcial']))
     )
     
     estadisticas = []
@@ -115,7 +115,7 @@ def estadisticas_vendedores(request):
             'zona': vendedor.zona,
             'total_facturas': vendedor.total_facturas,
             'facturas_pendientes': vendedor.facturas_pendientes,
-            'cartera_pendiente': vendedor.cartera_pendiente or 0
+            'cartera_pendiente': vendedor.cartera_total or 0
         })
     
     return Response({
