@@ -1,7 +1,12 @@
 from django.urls import path
-from .views import VendedorListCreateView, VendedorRetrieveUpdateDestroyView
+from . import views
 
 urlpatterns = [
-    path('', VendedorListCreateView.as_view(), name='vendedores-list-create'),
-    path('<int:pk>/', VendedorRetrieveUpdateDestroyView.as_view(), name='vendedor-detail'),
+    # CRUD de vendedores
+    path('', views.VendedorListCreateView.as_view(), name='vendedores-list-create'),
+    path('<int:pk>/', views.VendedorDetailView.as_view(), name='vendedor-detail'),
+    
+    # Endpoints especiales
+    path('estadisticas/', views.estadisticas_vendedores, name='estadisticas-vendedores'),
+    path('mi-perfil/', views.mi_perfil_vendedor, name='mi-perfil-vendedor'),
 ]

@@ -69,3 +69,15 @@ class RemoveRoleSerializer(serializers.Serializer):
         if group:
             instance.groups.remove(group)
         return instance
+
+class UserBasicSerializer(serializers.ModelSerializer):
+    """Serializer básico para mostrar información de usuario en relaciones"""
+    full_name = serializers.CharField(source='get_full_name', read_only=True)
+    roles = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = CustomUser
+        fields = ('id', 'name', 'email', 'full_name', 'roles')
+    
+    def get_roles(self, obj):
+        return list(obj.groups.values_list("name", flat=True))

@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework.authtoken",
     "drf_spectacular",
+    "django_filters",
     #mis apps
     "users",
     'clientes',
@@ -64,6 +65,7 @@ INSTALLED_APPS = [
     'pagos',
     'vendedores',
     'distribuidores',
+    'alertas',
     
 ]
 
