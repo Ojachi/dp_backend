@@ -24,11 +24,18 @@ class ServicioAlertas:
             dias_anticipacion = tipo_alerta.dias_anticipacion or 7
             fecha_limite = timezone.now().date() + timedelta(days=dias_anticipacion)
             
-            # Buscar facturas que vencen en el período especificado
+            # Buscar facturas que vencen en el período especificado O que ya están vencidas
             facturas_por_vencer = Factura.objects.filter(
-                fecha_vencimiento__lte=fecha_limite,
-                fecha_vencimiento__gte=timezone.now().date(),
-                estado__in=['pendiente', 'parcial']
+                Q(
+                    # Facturas por vencer en el período
+                    fecha_vencimiento__lte=fecha_limite,
+                    fecha_vencimiento__gte=timezone.now().date()
+                ) | Q(
+                    # Facturas ya vencidas (críticas)
+                    fecha_vencimiento__lt=timezone.now().date(),
+                    estado='vencida'
+                ),
+                estado__in=['pendiente', 'parcial', 'vencida']
             ).exclude(
                 # Excluir facturas que ya tienen alertas de este tipo
                 alertas__tipo_alerta=tipo_alerta,
@@ -197,6 +204,60 @@ class ServicioAlertas:
                 usuarios.append(factura.distribuidor)
         
         return list(set(usuarios))  # Eliminar duplicados
+    
+    @classmethod
+    def generar_alerta_factura_especifica(cls, factura, tipo='vencida'):
+        """Generar alerta para una factura específica"""
+        from .models import TipoAlerta
+        
+        # Buscar el tipo de alerta correspondiente
+        if tipo == 'monto_alto':
+            tipo_filtro = 'monto_alto'
+        elif tipo == 'sin_pagos':
+            tipo_filtro = 'sin_pagos'
+        else:
+            tipo_filtro = 'vencimiento'
+        
+        tipo_alerta = TipoAlerta.objects.filter(
+            tipo=tipo_filtro,
+            activa=True
+        ).first()
+        
+        if not tipo_alerta:
+            return False
+        
+        # Obtener usuarios destinatarios
+        usuarios_destinatarios = cls._obtener_usuarios_destinatarios(factura, tipo_alerta)
+        
+        alertas_creadas = 0
+        for usuario in usuarios_destinatarios:
+            # Verificar si ya existe una alerta activa para esta combinación
+            if not Alerta.objects.filter(
+                factura=factura,
+                usuario_destinatario=usuario,
+                tipo_alerta=tipo_alerta,
+                estado__in=['nueva', 'leida']
+            ).exists():
+                
+                # Crear mensaje específico según el tipo
+                if tipo == 'vencida':
+                    mensaje = f"La factura {factura.numero_factura} está vencida desde {factura.fecha_vencimiento}"
+                elif tipo == 'monto_alto':
+                    mensaje = f"Factura {factura.numero_factura} tiene un monto alto: ${factura.valor_total:,.2f}"
+                else:
+                    mensaje = f"Alerta para factura {factura.numero_factura}"
+                
+                Alerta.objects.create(
+                    tipo_alerta=tipo_alerta,
+                    factura=factura,
+                    usuario_destinatario=usuario,
+                    mensaje=mensaje,
+                    fecha_generacion=timezone.now(),
+                    estado='nueva'
+                )
+                alertas_creadas += 1
+        
+        return alertas_creadas > 0
     
     @classmethod
     def procesar_todas_las_alertas(cls):

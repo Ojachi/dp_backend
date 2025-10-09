@@ -44,6 +44,10 @@ class Pago(models.Model):
         if self.valor_pagado <= 0:
             raise ValidationError("El valor del pago debe ser mayor a cero")
         
+        # Validar que fecha de pago no sea futura
+        if self.fecha_pago and self.fecha_pago.date() > timezone.now().date():
+            raise ValidationError("La fecha de pago no puede ser futura")
+        
         # Validar que no se exceda el saldo pendiente de la factura
         if self.factura_id:
             saldo_actual = self.factura.valor_total

@@ -7,8 +7,7 @@ __pycache__/
 .env
 
 #archivos 
-TUTORIAL_PRUEBAS_SISTEMA.md
-AUDITORIA_FUNCIONALIDADES.md
-README_IMPLEMENTACION.md
-2. CARTERA CLIENTES A SEPTIEMBRE 16 DE 2025.xlsx
-Especificaciones_App_Distribuciones_Perdomo.xlsx
+
+
+*.md
+*.xlsx

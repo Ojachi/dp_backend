@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 from decimal import Decimal
 from clientes.models import Cliente
 from django.conf import settings
@@ -36,6 +37,19 @@ class Factura(models.Model):
 
     def __str__(self):
         return f"Factura {self.numero_factura} - {self.cliente.nombre}"
+    
+    def clean(self):
+        """Validaciones del modelo"""
+        # Validar que fecha de emisión no sea posterior a fecha de vencimiento
+        if self.fecha_emision and self.fecha_vencimiento:
+            if self.fecha_emision > self.fecha_vencimiento:
+                raise ValidationError(
+                    "La fecha de emisión no puede ser posterior a la fecha de vencimiento"
+                )
+        
+        # Validar que el valor total sea positivo
+        if self.valor_total is not None and self.valor_total <= 0:
+            raise ValidationError("El valor total debe ser mayor a cero")
     
     @property
     def total_pagado(self):

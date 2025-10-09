@@ -38,8 +38,8 @@ class PagoListCreateView(generics.ListCreateAPIView):
         elif user.groups.filter(name='Vendedor').exists():
             # Los vendedores solo ven pagos de sus facturas
             queryset = queryset.filter(factura__vendedor=user)
-        elif user.groups.filter(name='Repartidor').exists():
-            # Los repartidores solo ven pagos de sus facturas
+        elif user.groups.filter(name='Distribuidor').exists():
+            # Los distribuidores solo ven pagos de sus facturas
             queryset = queryset.filter(factura__distribuidor=user)
         else:
             # Sin rol específico, no ve nada
@@ -87,8 +87,8 @@ class PagoListCreateView(generics.ListCreateAPIView):
                 if factura.vendedor != user:
                     raise PermissionError("Solo puede registrar pagos en facturas asignadas a usted")
             
-            # Repartidores solo pueden registrar pagos en sus facturas
-            if user.groups.filter(name='Repartidor').exists():
+            # Distribuidores solo pueden registrar pagos en sus facturas
+            if user.groups.filter(name='Distribuidor').exists():
                 if factura.distribuidor != user:
                     raise PermissionError("Solo puede registrar pagos en facturas asignadas a usted")
         
@@ -117,7 +117,7 @@ class PagoDetailView(generics.RetrieveUpdateDestroyAPIView):
             return queryset
         elif user.groups.filter(name='Vendedor').exists():
             return queryset.filter(factura__vendedor=user)
-        elif user.groups.filter(name='Repartidor').exists():
+        elif user.groups.filter(name='Distribuidor').exists():
             return queryset.filter(factura__distribuidor=user)
         else:
             return queryset.none()

@@ -45,8 +45,8 @@ class FacturaListCreateView(generics.ListCreateAPIView):
         elif user.groups.filter(name='Vendedor').exists():
             # Los vendedores solo ven sus facturas asignadas
             queryset = queryset.filter(vendedor=user)
-        elif user.groups.filter(name='Repartidor').exists():
-            # Los repartidores solo ven sus facturas asignadas
+        elif user.groups.filter(name='Distribuidor').exists():
+            # Los distribuidores solo ven sus facturas asignadas
             queryset = queryset.filter(distribuidor=user)
         else:
             # Sin rol específico, no ve nada
@@ -103,7 +103,7 @@ class FacturaDetailView(generics.RetrieveUpdateDestroyAPIView):
             return queryset
         elif user.groups.filter(name='Vendedor').exists():
             return queryset.filter(vendedor=user)
-        elif user.groups.filter(name='Repartidor').exists():
+        elif user.groups.filter(name='Distribuidor').exists():
             return queryset.filter(distribuidor=user)
         else:
             return queryset.none()
@@ -139,7 +139,7 @@ def facturas_vencidas(request):
         pass  # Ve todas
     elif user.groups.filter(name='Vendedor').exists():
         queryset = queryset.filter(vendedor=user)
-    elif user.groups.filter(name='Repartidor').exists():
+    elif user.groups.filter(name='Distribuidor').exists():
         queryset = queryset.filter(distribuidor=user)
     else:
         queryset = queryset.none()

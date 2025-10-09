@@ -18,7 +18,7 @@ class IsVendedor(IsInGroup):
     groupname = 'Vendedor'
 
 class IsRepartidor(IsInGroup):
-    groupname = 'Repartidor'
+    groupname = 'Distribuidor'  # Actualizado para consistencia
 
 class IsDistribuidor(IsInGroup):
     groupname = 'Distribuidor'
@@ -51,5 +51,5 @@ class IsGerenteOrVendedorOrDistribuidor(BasePermission):
             return False
         
         return request.user.groups.filter(
-            name__in=['Gerente', 'Vendedor', 'Distribuidor', 'Repartidor']
+            name__in=['Gerente', 'Vendedor', 'Distribuidor']
         ).exists()
