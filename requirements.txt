@@ -4,6 +4,7 @@ certifi==2025.8.3
 charset-normalizer==3.4.3
 Django==5.2.6
 django-environ==0.12.0
+django-cors-headers==4.7.0
 djangorestframework==3.16.1
 drf-spectacular==0.28.0
 idna==3.10
