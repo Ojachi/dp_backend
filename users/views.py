@@ -14,18 +14,54 @@ from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.authentication import TokenAuthentication, SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
+from django.db.models import Q
 
 class CustomUserListView(ListAPIView):
     serializer_class = CustomUserSerializer
     queryset = CustomUser.objects.all()
     authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsGerente]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        params = self.request.query_params
+
+        # Buscar por texto en nombre, username, email, first_name, last_name
+        buscar = params.get('buscar')
+        if buscar:
+            buscar = buscar.strip()
+            qs = qs.filter(
+                Q(name__icontains=buscar) |
+                Q(username__icontains=buscar) |
+                Q(email__icontains=buscar) |
+                Q(first_name__icontains=buscar) |
+                Q(last_name__icontains=buscar)
+            )
+
+        # Filtrar por estado activo
+        is_active = params.get('is_active')
+        if is_active in ('true', 'false', 'True', 'False', '1', '0'):
+            qs = qs.filter(is_active=is_active.lower() in ('true', '1'))
+
+        # Filtrar por rol (grupo): gerente | vendedor | distribuidor
+        rol = params.get('rol')
+        if rol:
+            mapa = {
+                'gerente': 'Gerente',
+                'vendedor': 'Vendedor',
+                'distribuidor': 'Distribuidor'
+            }
+            nombre_grupo = mapa.get(rol.lower())
+            if nombre_grupo:
+                qs = qs.filter(groups__name=nombre_grupo)
+
+        return qs
 
 class CustomUserRetrieveUpdateDestroyView(RetrieveUpdateDestroyAPIView):
     serializer_class = CustomUserSerializer
     queryset = CustomUser.objects.all()
     authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsGerente]
 
 class AssignRoleView(APIView):
     authentication_classes = [TokenAuthentication]
@@ -36,10 +72,8 @@ class AssignRoleView(APIView):
         serializer = AssignRoleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.update(user, serializer.validated_data)
-        return Response(
-            {"message": "Rol asignado correctamente", "role": serializer.validated_data["role"]},
-            status=status.HTTP_200_OK
-        )
+        role = serializer.validated_data.get("role")
+        return Response({"message": "Rol asignado correctamente", "role": role}, status=status.HTTP_200_OK)
 
 class RemoveRoleView(APIView):
     authentication_classes = [TokenAuthentication]
@@ -50,10 +84,8 @@ class RemoveRoleView(APIView):
         serializer = RemoveRoleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.update(user, serializer.validated_data)
-        return Response(
-            {"message": f"Rol '{serializer.validated_data['role']}' eliminado correctamente"},
-            status=status.HTTP_200_OK
-        )
+        role = serializer.validated_data.get("role")
+        return Response({"message": f"Rol '{role}' eliminado correctamente"}, status=status.HTTP_200_OK)
 
 class UserProfileView(APIView):
     """

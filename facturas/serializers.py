@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Factura
+
+from .models import Factura, FacturaImportacion
 from clientes.serializers import ClienteListSerializer
 from users.serializers import UserBasicSerializer
 
@@ -18,6 +19,7 @@ class FacturaListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'numero_factura', 'cliente', 'cliente_nombre',
             'vendedor', 'vendedor_nombre', 'distribuidor', 'distribuidor_nombre',
+            'tipo',
             'fecha_emision', 'fecha_vencimiento', 'valor_total', 'estado',
             'total_pagado', 'saldo_pendiente', 'esta_vencida', 'dias_vencimiento',
             'creado', 'actualizado'
@@ -52,6 +54,7 @@ class FacturaDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'numero_factura', 'cliente', 'cliente_id',
             'vendedor', 'vendedor_id', 'distribuidor', 'distribuidor_id',
+            'tipo',
             'fecha_emision', 'fecha_vencimiento', 'valor_total', 'estado',
             'observaciones', 'total_pagado', 'saldo_pendiente', 
             'esta_vencida', 'dias_vencimiento', 'creado', 'actualizado'
@@ -91,6 +94,7 @@ class FacturaCreateSerializer(serializers.ModelSerializer):
         model = Factura
         fields = [
             'numero_factura', 'cliente_id', 'vendedor_id', 'distribuidor_id',
+            'tipo',
             'fecha_emision', 'fecha_vencimiento', 'valor_total', 'observaciones'
         ]
 
@@ -124,6 +128,7 @@ class FacturaUpdateSerializer(serializers.ModelSerializer):
         model = Factura
         fields = [
             'vendedor_id', 'distribuidor_id', 'fecha_vencimiento', 
+            'tipo',
             'observaciones', 'estado'
         ]
 
@@ -135,3 +140,24 @@ class FacturaUpdateSerializer(serializers.ModelSerializer):
                     "No se puede marcar como pagada una factura con saldo pendiente"
                 )
         return value
+
+
+class FacturaImportacionSerializer(serializers.ModelSerializer):
+    usuario = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = FacturaImportacion
+        fields = [
+            'id',
+            'archivo_nombre',
+            'estado',
+            'total_registros',
+            'registros_validos',
+            'registros_invalidos',
+            'detalle',
+            'errores',
+            'usuario',
+            'creado',
+            'actualizado',
+        ]
+        read_only_fields = fields

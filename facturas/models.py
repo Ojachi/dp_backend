@@ -1,9 +1,15 @@
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, Dict, List
+
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
-from django.core.exceptions import ValidationError
-from decimal import Decimal
+
 from clientes.models import Cliente
-from django.conf import settings
+
+if TYPE_CHECKING:  # pragma: no cover
+    from pagos.models import Pago
 
 class Factura(models.Model):
     ESTADOS = [
@@ -13,11 +19,16 @@ class Factura(models.Model):
         ('vencida', 'Vencida'),
         ('cancelada', 'Cancelada'),
     ]
+    TIPOS_FACTURA = [
+        ('FE', 'Factura Electrónica'),
+        ('R', 'Remisión'),
+    ]
     
     numero_factura = models.CharField(max_length=50, unique=True)
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name='facturas')
     vendedor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='facturas_vendedor')
     distribuidor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='facturas_distribuidor')
+    tipo = models.CharField(max_length=2, choices=TIPOS_FACTURA, default='FE', help_text='Tipo de factura: FE (Factura Electrónica) o R (Remisión)')
     fecha_emision = models.DateField()
     fecha_vencimiento = models.DateField()
     valor_total = models.DecimalField(max_digits=12, decimal_places=2)
@@ -33,6 +44,7 @@ class Factura(models.Model):
             models.Index(fields=['cliente', 'estado']),
             models.Index(fields=['vendedor', 'estado']),
             models.Index(fields=['fecha_vencimiento']),
+            models.Index(fields=['tipo']),
         ]
 
     def __str__(self):
@@ -54,7 +66,9 @@ class Factura(models.Model):
     @property
     def total_pagado(self):
         """Calcula el total pagado de esta factura"""
-        total = self.pagos.aggregate(
+        # Considerar únicamente pagos confirmados
+        pagos_qs = self.pagos.filter(estado='confirmado')  # type: ignore[attr-defined]
+        total = pagos_qs.aggregate(
             total=models.Sum('valor_pagado')
         )['total'] or Decimal('0.00')
         return total
@@ -133,3 +147,67 @@ class Factura(models.Model):
             return False, f"El monto excede el saldo pendiente de {self.saldo_pendiente}"
             
         return True, "Pago válido"
+
+
+class FacturaImportacion(models.Model):
+    """Registro de procesos de importación de facturas."""
+
+    ESTADOS = [
+        ("pendiente", "Pendiente"),
+        ("validado", "Validado"),
+        ("procesando", "Procesando"),
+        ("completado", "Completado"),
+        ("error", "Error"),
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="importaciones_facturas",
+    )
+    archivo_nombre = models.CharField(max_length=255)
+    estado = models.CharField(max_length=20, choices=ESTADOS, default="pendiente")
+    total_registros = models.PositiveIntegerField(default=0)
+    registros_validos = models.PositiveIntegerField(default=0)
+    registros_invalidos = models.PositiveIntegerField(default=0)
+    detalle = models.JSONField(default=dict, blank=True)
+    errores = models.JSONField(default=list, blank=True)
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-creado"]
+
+    def __str__(self) -> str:
+        return f"Importación {self.pk} - {self.archivo_nombre}"
+
+    def registrar_detalle(
+        self,
+        *,
+        total: int,
+        validos: int,
+        invalidos: int,
+        errores: List[Dict[str, Any]],
+        estado: str,
+        extra: Dict[str, Any] | None = None,
+    ) -> None:
+        """Actualiza métricas y estado del proceso."""
+
+        self.total_registros = total
+        self.registros_validos = validos
+        self.registros_invalidos = invalidos
+        self.errores = errores
+        if extra is not None:
+            self.detalle = extra
+        self.estado = estado
+        self.save(update_fields=[
+            "total_registros",
+            "registros_validos",
+            "registros_invalidos",
+            "errores",
+            "detalle",
+            "estado",
+            "actualizado",
+        ])

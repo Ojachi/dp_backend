@@ -1,17 +1,34 @@
-from rest_framework import generics, status, filters
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from django.db.models import Q, Sum
+import csv
+from typing import Type, cast
+
+from django.db.models import QuerySet, Sum
+from django.http import StreamingHttpResponse
 from django.utils import timezone
+from rest_framework import filters, generics, status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.serializers import Serializer
+from rest_framework.response import Response
+
+from facturas.models import Factura
+from users.permissions import IsGerente, IsVendedor
 
 from .models import Pago
-from facturas.models import Factura
 from .serializers import (
-    PagoListSerializer, PagoDetailSerializer, 
-    PagoCreateSerializer, PagoUpdateSerializer
+    PagoListSerializer,
+    PagoDetailSerializer,
+    PagoCreateSerializer,
+    PagoUpdateSerializer,
+    PagoConfirmSerializer,
 )
-from users.permissions import IsGerente, IsVendedor, IsRepartidor
+from .services import (
+    filtrar_pagos_por_usuario,
+    generar_filas_exportacion,
+    obtener_estadisticas_dashboard,
+    obtener_metodos_pago,
+)
 
 
 class PagoListCreateView(generics.ListCreateAPIView):
@@ -22,93 +39,26 @@ class PagoListCreateView(generics.ListCreateAPIView):
     ordering_fields = ['fecha_pago', 'valor_pagado']
     ordering = ['-fecha_pago']
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> Type[Serializer]:  # type: ignore[override]
         if self.request.method == 'POST':
             return PagoCreateSerializer
         return PagoListSerializer
 
-    def get_queryset(self):
-        user = self.request.user
-        queryset = Pago.objects.select_related('factura', 'factura__cliente', 'usuario_registro')
-        
-        # Filtrar según el rol del usuario
-        if user.groups.filter(name='Gerente').exists():
-            # Los gerentes ven todos los pagos
-            pass
-        elif user.groups.filter(name='Vendedor').exists():
-            # Los vendedores solo ven pagos de sus facturas
-            queryset = queryset.filter(factura__vendedor=user)
-        elif user.groups.filter(name='Distribuidor').exists():
-            # Los distribuidores solo ven pagos de sus facturas
-            queryset = queryset.filter(factura__distribuidor=user)
-        else:
-            # Sin rol específico, no ve nada
-            queryset = queryset.none()
-        
-        # Filtros adicionales
-        factura_id = self.request.query_params.get('factura_id')
-        if factura_id:
-            queryset = queryset.filter(factura_id=factura_id)
-            
-        tipo_pago = self.request.query_params.get('tipo_pago')
-        if tipo_pago:
-            queryset = queryset.filter(tipo_pago=tipo_pago)
-            
-        fecha_desde = self.request.query_params.get('fecha_desde')
-        if fecha_desde:
-            queryset = queryset.filter(fecha_pago__date__gte=fecha_desde)
-            
-        fecha_hasta = self.request.query_params.get('fecha_hasta')
-        if fecha_hasta:
-            queryset = queryset.filter(fecha_pago__date__lte=fecha_hasta)
-        
-        return queryset
-
-    def perform_create(self, serializer):
-        user = self.request.user
-        
-        # Verificar permisos para crear pagos
-        can_create_payment = (
-            user.groups.filter(name='Gerente').exists() or
-            user.groups.filter(name='Vendedor').exists() or
-            user.groups.filter(name='Repartidor').exists()
-        )
-        
-        if not can_create_payment:
-            raise PermissionError("No tiene permisos para registrar pagos")
-        
-        # Verificar que puede registrar pago para esta factura específica
-        factura_id = serializer.validated_data['factura_id']
-        try:
-            factura = Factura.objects.get(id=factura_id)
-            
-            # Vendedores solo pueden registrar pagos en sus facturas
-            if user.groups.filter(name='Vendedor').exists():
-                if factura.vendedor != user:
-                    raise PermissionError("Solo puede registrar pagos en facturas asignadas a usted")
-            
-            # Distribuidores solo pueden registrar pagos en sus facturas
-            if user.groups.filter(name='Distribuidor').exists():
-                if factura.distribuidor != user:
-                    raise PermissionError("Solo puede registrar pagos en facturas asignadas a usted")
-        
-        except Factura.DoesNotExist:
-            raise ValueError("La factura especificada no existe")
-        
-        # Asignar el usuario que registra el pago
-        serializer.save(usuario_registro=user, factura_id=factura_id)
+    def get_queryset(self) -> QuerySet[Pago]:  # type: ignore[override]
+        request = cast(Request, self.request)
+        return filtrar_pagos_por_usuario(request.user, request.query_params)
 
 
 class PagoDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Vista para ver, actualizar y eliminar pagos individuales"""
     permission_classes = [IsAuthenticated]
     
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> Type[Serializer]:  # type: ignore[override]
         if self.request.method in ['PUT', 'PATCH']:
             return PagoUpdateSerializer
         return PagoDetailSerializer
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[Pago]:  # type: ignore[override]
         user = self.request.user
         queryset = Pago.objects.select_related('factura', 'factura__cliente', 'usuario_registro')
         
@@ -133,7 +83,7 @@ class PagoDetailView(generics.RetrieveUpdateDestroyAPIView):
         )
         
         if not can_edit:
-            raise PermissionError("Solo puede editar pagos que usted mismo registró")
+            raise PermissionDenied("Solo puede editar pagos que usted mismo registró")
         
         serializer.save()
     
@@ -147,7 +97,7 @@ class PagoDetailView(generics.RetrieveUpdateDestroyAPIView):
         )
         
         if not can_delete:
-            raise PermissionError("Solo puede eliminar pagos que usted mismo registró")
+            raise PermissionDenied("Solo puede eliminar pagos que usted mismo registró")
         
         instance.delete()
 
@@ -159,7 +109,7 @@ def historial_pagos_factura(request, factura_id):
     user = request.user
     
     try:
-        factura = Factura.objects.get(id=factura_id)
+        factura: Factura = Factura.objects.get(id=factura_id)
         
         # Verificar permisos para ver esta factura
         can_view = False
@@ -167,7 +117,7 @@ def historial_pagos_factura(request, factura_id):
             can_view = True
         elif user.groups.filter(name='Vendedor').exists():
             can_view = factura.vendedor == user
-        elif user.groups.filter(name='Repartidor').exists():
+        elif user.groups.filter(name='Distribuidor').exists():
             can_view = factura.distribuidor == user
         
         if not can_view:
@@ -181,7 +131,7 @@ def historial_pagos_factura(request, factura_id):
         
         return Response({
             'factura': {
-                'id': factura.id,
+                'id': factura.pk,
                 'numero_factura': factura.numero_factura,
                 'cliente': factura.cliente.nombre,
                 'valor_total': factura.valor_total,
@@ -226,7 +176,8 @@ def resumen_pagos_cliente(request, cliente_id):
     total_facturas = facturas.count()
     valor_total_facturas = facturas.aggregate(Sum('valor_total'))['valor_total__sum'] or 0
     
-    pagos = Pago.objects.filter(factura__cliente_id=cliente_id)
+    # Considerar solo pagos confirmados para consistencia con saldos
+    pagos = Pago.objects.filter(factura__cliente_id=cliente_id, estado='confirmado')
     total_pagos = pagos.aggregate(Sum('valor_pagado'))['valor_pagado__sum'] or 0
     
     saldo_pendiente = valor_total_facturas - total_pagos
@@ -259,38 +210,93 @@ def resumen_pagos_cliente(request, cliente_id):
 @permission_classes([IsGerente])
 def dashboard_pagos(request):
     """Dashboard con estadísticas de pagos - Solo para gerentes"""
-    
-    # Estadísticas generales de pagos
-    total_pagos = Pago.objects.count()
-    monto_total_pagos = Pago.objects.aggregate(Sum('valor_pagado'))['valor_pagado__sum'] or 0
-    
-    # Pagos por tipo
-    pagos_por_tipo = {}
-    for tipo, nombre in Pago.TIPOS_PAGO:
-        count = Pago.objects.filter(tipo_pago=tipo).count()
-        monto = Pago.objects.filter(tipo_pago=tipo).aggregate(Sum('valor_pagado'))['valor_pagado__sum'] or 0
-        pagos_por_tipo[tipo] = {
-            'nombre': nombre,
-            'cantidad': count,
-            'monto_total': monto
-        }
-    
-    # Pagos del mes actual
-    hoy = timezone.now()
-    inicio_mes = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    pagos_mes = Pago.objects.filter(fecha_pago__gte=inicio_mes)
-    
-    pagos_mes_count = pagos_mes.count()
-    pagos_mes_monto = pagos_mes.aggregate(Sum('valor_pagado'))['valor_pagado__sum'] or 0
-    
-    return Response({
-        'estadisticas_generales': {
-            'total_pagos': total_pagos,
-            'monto_total_pagos': monto_total_pagos,
-        },
-        'pagos_mes_actual': {
-            'cantidad': pagos_mes_count,
-            'monto': pagos_mes_monto
-        },
-        'pagos_por_tipo': pagos_por_tipo
-    })
+    drf_request = cast(Request, request)
+    queryset = filtrar_pagos_por_usuario(drf_request.user, drf_request.query_params)
+    data = obtener_estadisticas_dashboard(queryset)
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def listar_metodos_pago(request):
+    """Listado de métodos de pago disponibles."""
+    return Response(obtener_metodos_pago())
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def registrar_pago_factura(request, factura_id: int):
+    """Registra un pago asociado a una factura específica."""
+    payload = request.data.copy()
+    payload['factura_id'] = factura_id
+
+    serializer = PagoCreateSerializer(data=payload, context={'request': request})
+    serializer.is_valid(raise_exception=True)
+    pago = serializer.save()
+
+    detalle_serializer = PagoDetailSerializer(pago, context={'request': request})
+    return Response(detalle_serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@permission_classes([IsGerente])
+def confirmar_pago(request, pk: int):
+    """Confirma un pago registrado previamente y aplica su efecto en la factura."""
+    try:
+        pago = Pago.objects.select_related('factura').get(pk=pk)
+    except Pago.DoesNotExist:
+        return Response({'error': 'Pago no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+    # No permitir reconfirmar o confirmar anulados
+    if pago.estado == 'confirmado':
+        return Response({'detail': 'El pago ya está confirmado'}, status=status.HTTP_400_BAD_REQUEST)
+    if pago.estado == 'anulado':
+        return Response({'detail': 'No es posible confirmar un pago anulado'}, status=status.HTTP_400_BAD_REQUEST)
+
+    serializer = PagoConfirmSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    # Validar saldo disponible al confirmar
+    pago.estado = 'confirmado'
+    pago.usuario_confirmacion = request.user
+    pago.fecha_confirmacion = timezone.now()
+
+    try:
+        pago.save()
+    except Exception as exc:  # Validación de exceder saldo, etc.
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    detalle_serializer = PagoDetailSerializer(pago, context={'request': request})
+    return Response(detalle_serializer.data, status=status.HTTP_200_OK)
+
+
+class Echo:
+    """Helper para StreamingHttpResponse con csv.writer."""
+
+    @staticmethod
+    def write(value):  # pragma: no cover - comportamiento trivial
+        return value
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def exportar_pagos(request):
+    """Exporta los pagos según filtros aplicados."""
+    formato = request.query_params.get('formato', 'excel').lower()
+    if formato not in {'excel', 'csv'}:
+        return Response({'error': 'Formato no soportado'}, status=status.HTTP_400_BAD_REQUEST)
+
+    drf_request = cast(Request, request)
+    queryset = filtrar_pagos_por_usuario(drf_request.user, drf_request.query_params).order_by('-fecha_pago')
+    filas = generar_filas_exportacion(queryset)
+
+    pseudo_buffer = Echo()
+    writer = csv.writer(pseudo_buffer)
+
+    response = StreamingHttpResponse(
+        (writer.writerow(fila) for fila in filas),
+        content_type='application/vnd.ms-excel',
+    )
+    timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+    response['Content-Disposition'] = f'attachment; filename="reporte_pagos_{timestamp}.csv"'
+    return response

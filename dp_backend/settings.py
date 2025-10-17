@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     'vendedores',
     'distribuidores',
     'alertas',
+    'cartera',
     
 ]
 

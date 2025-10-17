@@ -1,4 +1,5 @@
 from django.utils import timezone
+from django.db import models
 from django.db.models import Q
 from datetime import timedelta
 from decimal import Decimal
@@ -68,7 +69,7 @@ class ServicioAlertas:
                         datos_contexto={
                             'dias_restantes': dias_restantes,
                             'saldo_pendiente': str(factura.saldo_pendiente),
-                            'cliente_id': factura.cliente.id,
+                            'cliente_id': getattr(factura, 'cliente_id', None),
                             'cliente_nombre': factura.cliente.nombre,
                         }
                     )
@@ -114,7 +115,7 @@ class ServicioAlertas:
                         datos_contexto={
                             'valor_factura': str(factura.valor_total),
                             'monto_limite': str(tipo_alerta.monto_minimo),
-                            'cliente_id': factura.cliente.id,
+                            'cliente_id': getattr(factura, 'cliente_id', None),
                             'cliente_nombre': factura.cliente.nombre,
                         }
                     )
@@ -134,7 +135,8 @@ class ServicioAlertas:
         alertas_generadas = 0
         
         for tipo_alerta in tipos_sin_pagos:
-            fecha_limite = timezone.now().date() - timedelta(days=tipo_alerta.dias_sin_actividad)
+            dias_sin_actividad = int(tipo_alerta.dias_sin_actividad or 0)
+            fecha_limite = timezone.now().date() - timedelta(days=dias_sin_actividad)
             
             # Buscar facturas antiguas sin pagos
             facturas_sin_pagos = Factura.objects.filter(
@@ -164,7 +166,7 @@ class ServicioAlertas:
                         datos_contexto={
                             'dias_sin_pago': dias_sin_pago,
                             'valor_factura': str(factura.valor_total),
-                            'cliente_id': factura.cliente.id,
+                            'cliente_id': getattr(factura, 'cliente_id', None),
                             'cliente_nombre': factura.cliente.nombre,
                         }
                     )
@@ -302,3 +304,106 @@ class ServicioAlertas:
         )
         
         return alertas_actualizadas
+
+    @classmethod
+    def cambiar_estado_alerta(cls, usuario, alerta_id, leida=True):
+        """Actualizar el estado (leída/no leída) de una alerta específica"""
+        try:
+            alerta = Alerta.objects.get(id=alerta_id, usuario_destinatario=usuario)
+        except Alerta.DoesNotExist:
+            return None
+
+        if leida:
+            if alerta.estado != 'leida':
+                alerta.estado = 'leida'
+                alerta.fecha_leida = timezone.now()
+                alerta.save(update_fields=['estado', 'fecha_leida'])
+        else:
+            if alerta.estado != 'nueva':
+                alerta.estado = 'nueva'
+                alerta.fecha_leida = None
+                alerta.save(update_fields=['estado', 'fecha_leida'])
+
+        return alerta
+
+    @classmethod
+    def cambiar_estado_multiple(cls, usuario, alertas_ids, leida=True):
+        """Actualizar estado de múltiples alertas en bloque"""
+        if not alertas_ids:
+            return 0
+
+        queryset = Alerta.objects.filter(
+            id__in=alertas_ids,
+            usuario_destinatario=usuario
+        )
+
+        if leida:
+            actualizado = queryset.exclude(estado='leida').update(
+                estado='leida',
+                fecha_leida=timezone.now()
+            )
+        else:
+            actualizado = queryset.exclude(estado='nueva').update(
+                estado='nueva',
+                fecha_leida=None
+            )
+
+        return actualizado
+
+    @classmethod
+    def obtener_alertas_recientes(cls, usuario, desde=None, limite=20):
+        """Retorna alertas nuevas o recientes para un usuario"""
+        queryset = Alerta.objects.filter(usuario_destinatario=usuario)
+
+        if desde:
+            queryset = queryset.filter(fecha_generacion__gt=desde)
+
+        return queryset.select_related('tipo_alerta', 'factura').order_by('-fecha_generacion')[:limite]
+
+    @classmethod
+    def estadisticas_por_dia(cls, dias=7):
+        """Calcula cantidad de alertas por día para últimos 'dias'"""
+        fecha_inicio = timezone.now().date() - timedelta(days=dias - 1)
+        queryset = Alerta.objects.filter(fecha_generacion__date__gte=fecha_inicio)
+
+        resultados = (
+            queryset
+            .extra({'dia': "date(fecha_generacion)"})
+            .values('dia')
+            .order_by('dia')
+            .annotate(total=models.Count('id'), leidas=models.Count('id', filter=models.Q(estado='leida')))
+        )
+
+        return [
+            {
+                'fecha': registro['dia'],
+                'total': registro['total'],
+                'leidas': registro['leidas']
+            }
+            for registro in resultados
+        ]
+
+    @classmethod
+    def tiempo_promedio_lectura(cls):
+        """Calcula tiempo promedio entre generación y lectura en horas"""
+        alertas_con_lectura = Alerta.objects.filter(
+            fecha_leida__isnull=False,
+            fecha_generacion__isnull=False
+        )
+
+        if not alertas_con_lectura.exists():
+            return None
+
+        total_segundos = 0
+        contador = 0
+
+        for alerta in alertas_con_lectura:
+            if alerta.fecha_generacion and alerta.fecha_leida:
+                total_segundos += (alerta.fecha_leida - alerta.fecha_generacion).total_seconds()
+                contador += 1
+
+        if contador == 0:
+            return None
+
+        promedio_horas = total_segundos / contador / 3600
+        return round(promedio_horas, 2)

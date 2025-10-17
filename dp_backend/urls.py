@@ -15,8 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
-from django.urls import path, include
+from django.urls import include, path
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -37,4 +36,5 @@ urlpatterns = [
     path('api/facturas/', include('facturas.urls')),
     path('api/pagos/', include('pagos.urls')),
     path('api/alertas/', include('alertas.urls')),
+    path('api/cartera/', include('cartera.urls')),
 ]

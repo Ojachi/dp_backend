@@ -104,8 +104,11 @@ class EstadisticasAlertasSerializer(serializers.Serializer):
     total_alertas = serializers.IntegerField()
     alertas_nuevas = serializers.IntegerField()
     alertas_criticas = serializers.IntegerField()
+    alertas_recientes = serializers.IntegerField()
     alertas_por_tipo = serializers.DictField()
     alertas_por_prioridad = serializers.DictField()
+    alertas_por_dia = serializers.ListField(child=serializers.DictField(), required=False)
+    tiempo_promedio_lectura = serializers.FloatField(allow_null=True)
 
 class GenerarAlertasSerializer(serializers.Serializer):
     """Serializer para endpoint de generación manual de alertas"""

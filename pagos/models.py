@@ -15,6 +15,11 @@ class Pago(models.Model):
         ('consignacion', 'Consignación'),
         ('otro', 'Otro'),
     ]
+    ESTADOS = [
+        ('registrado', 'Registrado'),  # Registrado por cualquier rol, aún no aplicado
+        ('confirmado', 'Confirmado'),  # Confirmado y aplicado por Gerente
+        ('anulado', 'Anulado'),        # Anulado (opcional para futuro)
+    ]
     
     factura = models.ForeignKey(Factura, on_delete=models.CASCADE, related_name='pagos')
     fecha_pago = models.DateTimeField(default=timezone.now)
@@ -25,6 +30,16 @@ class Pago(models.Model):
                                         help_text="Número de referencia del comprobante")
     notas = models.TextField(blank=True, null=True)
     usuario_registro = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    # Nuevo flujo de confirmación
+    estado = models.CharField(max_length=20, choices=ESTADOS, default='registrado')
+    usuario_confirmacion = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pagos_confirmados'
+    )
+    fecha_confirmacion = models.DateTimeField(null=True, blank=True)
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
 
@@ -34,10 +49,11 @@ class Pago(models.Model):
             models.Index(fields=['factura', 'fecha_pago']),
             models.Index(fields=['usuario_registro', 'fecha_pago']),
             models.Index(fields=['tipo_pago']),
+            models.Index(fields=['estado']),
         ]
 
     def __str__(self):
-        return f"Pago {self.id} - Factura {self.factura.numero_factura} - ${self.valor_pagado}"
+        return f"Pago {self.id} - Factura {self.factura.numero_factura} - ${self.valor_pagado}"  # type: ignore[attr-defined]
     
     def clean(self):
         """Validaciones del modelo"""
@@ -48,15 +64,16 @@ class Pago(models.Model):
         if self.fecha_pago and self.fecha_pago.date() > timezone.now().date():
             raise ValidationError("La fecha de pago no puede ser futura")
         
-        # Validar que no se exceda el saldo pendiente de la factura
-        if self.factura_id:
+        # Si el pago se encuentra confirmado (o será confirmado en este guardado),
+        # validar que no se exceda el saldo pendiente considerando SOLO pagos confirmados
+        if self.factura_id and self.estado == 'confirmado':  # type: ignore[attr-defined]
             saldo_actual = self.factura.valor_total
-            pagos_existentes = self.factura.pagos.exclude(pk=self.pk).aggregate(
-                total=models.Sum('valor_pagado')
-            )['total'] or Decimal('0.00')
-            
-            saldo_disponible = saldo_actual - pagos_existentes
-            
+            pagos_confirmados_existentes = self.factura.pagos.exclude(pk=self.pk).filter(  # type: ignore[attr-defined]
+                estado='confirmado'
+            ).aggregate(total=models.Sum('valor_pagado'))['total'] or Decimal('0.00')
+
+            saldo_disponible = saldo_actual - pagos_confirmados_existentes
+
             if self.valor_pagado > saldo_disponible:
                 raise ValidationError(
                     f"El pago de ${self.valor_pagado} excede el saldo pendiente de ${saldo_disponible}"
@@ -67,11 +84,14 @@ class Pago(models.Model):
         self.full_clean()  # Ejecutar validaciones
         super().save(*args, **kwargs)
         
-        # Actualizar el estado de la factura después de guardar el pago
-        self.factura.actualizar_estado()
+        # Actualizar el estado de la factura solo cuando el pago esté confirmado
+        if self.estado == 'confirmado':
+            self.factura.actualizar_estado()
     
     def delete(self, *args, **kwargs):
         """Override delete para actualizar estado de factura al eliminar pago"""
         factura = self.factura
-        super().delete(*args, **kwargs)
+        result = super().delete(*args, **kwargs)
+        # Solo requiere actualización si el pago era confirmado y afectaba saldo
         factura.actualizar_estado()
+        return result

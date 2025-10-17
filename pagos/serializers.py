@@ -1,6 +1,12 @@
+from django.core.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework import serializers
-from .models import Pago
+
+from facturas.models import Factura
 from facturas.serializers import FacturaListSerializer
+
+from .models import Pago
+from .services import crear_pago_para_factura
 
 class PagoListSerializer(serializers.ModelSerializer):
     """Serializer para listar pagos"""
@@ -14,6 +20,7 @@ class PagoListSerializer(serializers.ModelSerializer):
             'id', 'factura', 'factura_numero', 'cliente_nombre',
             'fecha_pago', 'valor_pagado', 'tipo_pago', 
             'numero_comprobante', 'usuario_registro', 'usuario_nombre',
+            'estado',
             'creado'
         ]
 
@@ -21,6 +28,7 @@ class PagoDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para pagos"""
     factura = FacturaListSerializer(read_only=True)
     usuario_registro_nombre = serializers.CharField(source='usuario_registro.get_full_name', read_only=True)
+    usuario_confirmacion_nombre = serializers.CharField(source='usuario_confirmacion.get_full_name', read_only=True)
     
     class Meta:
         model = Pago
@@ -28,9 +36,10 @@ class PagoDetailSerializer(serializers.ModelSerializer):
             'id', 'factura', 'fecha_pago', 'valor_pagado', 'tipo_pago',
             'comprobante', 'numero_comprobante', 'notas', 
             'usuario_registro', 'usuario_registro_nombre',
+            'estado', 'usuario_confirmacion_nombre', 'fecha_confirmacion',
             'creado', 'actualizado'
         ]
-        read_only_fields = ['creado', 'actualizado', 'usuario_registro']
+        read_only_fields = ['creado', 'actualizado', 'usuario_registro', 'estado', 'fecha_confirmacion']
 
 class PagoCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear pagos"""
@@ -53,22 +62,34 @@ class PagoCreateSerializer(serializers.ModelSerializer):
                 "El valor del pago debe ser mayor a cero"
             )
 
-        # Validar que la factura existe y puede recibir pagos
+        # Validar que la factura existe; permitir registro sin validar saldo
         try:
-            from facturas.models import Factura
             factura = Factura.objects.get(id=factura_id)
-            puede_pagar, mensaje = factura.puede_recibir_pago(valor_pagado)
-            if not puede_pagar:
-                raise serializers.ValidationError(mensaje)
         except Factura.DoesNotExist:
             raise serializers.ValidationError("La factura especificada no existe")
+
+        # No permitir registrar pagos en facturas canceladas o ya pagadas
+        if factura.estado == 'cancelada':
+            raise DRFValidationError("No se pueden registrar pagos en facturas canceladas")
+        if factura.estado == 'pagada':
+            raise DRFValidationError("La factura ya está completamente pagada")
 
         return attrs
 
     def create(self, validated_data):
         """Crear pago y asignar usuario que lo registra"""
-        # El usuario se asigna en la vista
-        return super().create(validated_data)
+        request = self.context.get('request')
+        if request is None or not request.user.is_authenticated:
+            raise PermissionDenied("Autenticación requerida para registrar pagos")
+
+        factura_id = validated_data.pop('factura_id')
+
+        try:
+            factura = Factura.objects.select_related('cliente', 'vendedor', 'distribuidor').get(id=factura_id)
+        except Factura.DoesNotExist as exc:  # pragma: no cover - validación previa debería atraparlo
+            raise serializers.ValidationError("La factura especificada no existe") from exc
+
+        return crear_pago_para_factura(request.user, factura, validated_data)
 
 class PagoUpdateSerializer(serializers.ModelSerializer):
     """Serializer para actualizar pagos (limitado)"""
@@ -87,3 +108,8 @@ class PagoUpdateSerializer(serializers.ModelSerializer):
                 "No se puede modificar el valor de un pago ya registrado"
             )
         return attrs
+
+
+class PagoConfirmSerializer(serializers.Serializer):
+    """Serializer para confirmar pagos"""
+    confirmar = serializers.BooleanField(default=True)
