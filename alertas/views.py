@@ -52,6 +52,15 @@ class AlertaListView(generics.ListAPIView):
         tipo = params.get('tipo')
         if tipo:
             queryset = queryset.filter(tipo_alerta__tipo=tipo)
+
+        # Búsqueda por texto (título, mensaje o número de factura)
+        buscar = params.get('buscar')
+        if buscar:
+            queryset = queryset.filter(
+                Q(titulo__icontains=buscar) |
+                Q(mensaje__icontains=buscar) |
+                Q(factura__numero_factura__icontains=buscar)
+            )
         
         return queryset
 

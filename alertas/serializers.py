@@ -11,6 +11,7 @@ class TipoAlertaSerializer(serializers.ModelSerializer):
 class AlertaListSerializer(serializers.ModelSerializer):
     """Serializer para listar alertas"""
     tipo_alerta_nombre = serializers.CharField(source='tipo_alerta.nombre', read_only=True)
+    tipo = serializers.CharField(source='tipo_alerta.tipo', read_only=True)
     factura_numero = serializers.CharField(source='factura.numero_factura', read_only=True)
     cliente_nombre = serializers.CharField(source='factura.cliente.nombre', read_only=True)
     
@@ -18,7 +19,7 @@ class AlertaListSerializer(serializers.ModelSerializer):
         model = Alerta
         fields = [
             'id', 'titulo', 'mensaje', 'prioridad', 'estado',
-            'tipo_alerta_nombre', 'factura_numero', 'cliente_nombre',
+            'tipo', 'tipo_alerta_nombre', 'factura_numero', 'cliente_nombre',
             'fecha_generacion', 'fecha_leida', 'fecha_procesada'
         ]
 

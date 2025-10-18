@@ -53,11 +53,13 @@ def generar_alertas_pago_realizado(sender, instance, created, **kwargs):
             if factura.estado == 'pagada':
                 # Marcar como resueltas las alertas de vencimiento de esta factura
                 from .models import Alerta
+                # Marcar como procesadas (estado válido) las alertas de vencimiento
+                # y registrar fecha de procesamiento
                 Alerta.objects.filter(
                     factura=factura,
                     tipo_alerta__tipo='vencimiento',
                     estado__in=['nueva', 'leida']
-                ).update(estado='resuelta')
+                ).update(estado='procesada', fecha_procesada=timezone.now())
                 
                 logger.info(f"Alertas de vencimiento resueltas para factura pagada: {factura.numero_factura}")
     
