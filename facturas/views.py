@@ -40,7 +40,10 @@ class FacturaListCreateView(generics.ListCreateAPIView):
     """Vista para listar y crear facturas"""
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['estado', 'cliente', 'vendedor', 'distribuidor', 'tipo', 'valor_total']
+    # Nota: removemos 'vendedor' y 'distribuidor' del filterset_fields porque
+    # los parámetros del frontend traen el ID de las tablas Vendedor/Distribuidor,
+    # no el ID del usuario. Los manejamos manualmente en get_queryset.
+    filterset_fields = ['estado', 'cliente', 'tipo', 'valor_total']
     search_fields = ['numero_factura', 'cliente__nombre', 'observaciones']
     ordering_fields = ['fecha_emision', 'fecha_vencimiento', 'valor_total', 'estado']
     ordering = ['-fecha_emision']
@@ -77,6 +80,18 @@ class FacturaListCreateView(generics.ListCreateAPIView):
         estado = request.query_params.get('estado')
         if estado:
             queryset = queryset.filter(estado=estado)
+        
+        # Filtro por vendedor: el frontend envía el ID del modelo Vendedor,
+        # pero la FK en Factura apunta al usuario. Relación: vendedor (User)
+        # -> perfil_vendedor (OneToOne) -> id del modelo Vendedor.
+        vendedor_param = request.query_params.get('vendedor')
+        if vendedor_param:
+            queryset = queryset.filter(vendedor__perfil_vendedor__id=vendedor_param)
+        
+        # Filtro por distribuidor: análogo al caso vendedor.
+        distrib_param = request.query_params.get('distribuidor')
+        if distrib_param:
+            queryset = queryset.filter(distribuidor__perfil_distribuidor__id=distrib_param)
             
         fecha_desde = request.query_params.get('fecha_desde')
         if fecha_desde:

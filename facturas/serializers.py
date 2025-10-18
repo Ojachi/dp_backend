@@ -1,6 +1,8 @@
 from rest_framework import serializers
 
 from .models import Factura, FacturaImportacion
+from vendedores.models import Vendedor
+from distribuidores.models import Distribuidor
 from clientes.serializers import ClienteListSerializer
 from users.serializers import UserBasicSerializer
 
@@ -106,6 +108,30 @@ class FacturaCreateSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """Validaciones generales"""
+        # Mapear IDs de Vendedor/Distribuidor (modelos) a IDs de usuario para el modelo Factura.
+        # También aceptar compatibilidad si se envía directamente el ID del usuario.
+        vend_id = attrs.get('vendedor_id', None)
+        if vend_id is not None:
+            if Vendedor.objects.filter(pk=vend_id).exists():
+                vendedor = Vendedor.objects.get(pk=vend_id)
+                attrs['vendedor_id'] = vendedor.usuario.id
+            elif Vendedor.objects.filter(usuario_id=vend_id).exists():
+                # Ya es ID de usuario
+                attrs['vendedor_id'] = vend_id
+            else:
+                raise serializers.ValidationError("El vendedor especificado no existe")
+
+        dist_id = attrs.get('distribuidor_id', None)
+        if dist_id is not None:
+            if Distribuidor.objects.filter(pk=dist_id).exists():
+                distrib = Distribuidor.objects.get(pk=dist_id)
+                attrs['distribuidor_id'] = distrib.usuario.id
+            elif Distribuidor.objects.filter(usuario_id=dist_id).exists():
+                # Ya es ID de usuario
+                attrs['distribuidor_id'] = dist_id
+            else:
+                raise serializers.ValidationError("El distribuidor especificado no existe")
+
         if attrs.get('fecha_vencimiento') and attrs.get('fecha_emision'):
             if attrs['fecha_vencimiento'] < attrs['fecha_emision']:
                 raise serializers.ValidationError(
@@ -140,6 +166,30 @@ class FacturaUpdateSerializer(serializers.ModelSerializer):
                     "No se puede marcar como pagada una factura con saldo pendiente"
                 )
         return value
+
+    def validate(self, attrs):
+        # Mapear IDs de Vendedor/Distribuidor (modelos) a IDs de usuario para el modelo Factura
+        if 'vendedor_id' in attrs and attrs['vendedor_id'] is not None:
+            vend_id = attrs['vendedor_id']
+            if Vendedor.objects.filter(pk=vend_id).exists():
+                vendedor = Vendedor.objects.get(pk=vend_id)
+                attrs['vendedor_id'] = vendedor.usuario.id
+            elif Vendedor.objects.filter(usuario_id=vend_id).exists():
+                attrs['vendedor_id'] = vend_id
+            else:
+                raise serializers.ValidationError("El vendedor especificado no existe")
+
+        if 'distribuidor_id' in attrs and attrs['distribuidor_id'] is not None:
+            dist_id = attrs['distribuidor_id']
+            if Distribuidor.objects.filter(pk=dist_id).exists():
+                distrib = Distribuidor.objects.get(pk=dist_id)
+                attrs['distribuidor_id'] = distrib.usuario.id
+            elif Distribuidor.objects.filter(usuario_id=dist_id).exists():
+                attrs['distribuidor_id'] = dist_id
+            else:
+                raise serializers.ValidationError("El distribuidor especificado no existe")
+
+        return attrs
 
 
 class FacturaImportacionSerializer(serializers.ModelSerializer):

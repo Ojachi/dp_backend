@@ -29,6 +29,11 @@ class Pago(models.Model):
     numero_comprobante = models.CharField(max_length=100, blank=True, null=True, 
                                         help_text="Número de referencia del comprobante")
     notas = models.TextField(blank=True, null=True)
+    # Descuentos aplicables a la factura (no al pago), registrados junto con este pago
+    descuento = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    ica = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    retencion = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    nota = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     usuario_registro = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     # Nuevo flujo de confirmación
     estado = models.CharField(max_length=20, choices=ESTADOS, default='registrado')
@@ -57,26 +62,56 @@ class Pago(models.Model):
     
     def clean(self):
         """Validaciones del modelo"""
-        if self.valor_pagado <= 0:
-            raise ValidationError("El valor del pago debe ser mayor a cero")
+        # Permitir valor_pagado = 0 si hay descuentos/retenciones/ICA/nota que aplicar
+        # Se validará que el total aplicado sea > 0 más abajo
+        for campo in ('descuento', 'ica', 'retencion', 'nota'):
+            valor = getattr(self, campo) or 0
+            if valor < 0:
+                raise ValidationError(f"El campo {campo} no puede ser negativo")
         
         # Validar que fecha de pago no sea futura
         if self.fecha_pago and self.fecha_pago.date() > timezone.now().date():
             raise ValidationError("La fecha de pago no puede ser futura")
         
-        # Si el pago se encuentra confirmado (o será confirmado en este guardado),
-        # validar que no se exceda el saldo pendiente considerando SOLO pagos confirmados
+        # Calcular total a aplicar (independiente del estado) para validar no-cero
+        total_aplicar_actual = (
+            (self.valor_pagado or Decimal('0.00')) +
+            (self.descuento or Decimal('0.00')) +
+            (self.ica or Decimal('0.00')) +
+            (self.retencion or Decimal('0.00')) +
+            (self.nota or Decimal('0.00'))
+        )
+        if total_aplicar_actual <= 0:
+            raise ValidationError("Debe indicar al menos un valor a aplicar (pago, descuento, retención, ICA o nota)")
+
+        # Si el pago se encuentra confirmado (o será confirmado en este guardado), validar no exceder saldo
         if self.factura_id and self.estado == 'confirmado':  # type: ignore[attr-defined]
             saldo_actual = self.factura.valor_total
             pagos_confirmados_existentes = self.factura.pagos.exclude(pk=self.pk).filter(  # type: ignore[attr-defined]
                 estado='confirmado'
-            ).aggregate(total=models.Sum('valor_pagado'))['total'] or Decimal('0.00')
+            )
+            total_pagado_existente = pagos_confirmados_existentes.aggregate(total=models.Sum('valor_pagado'))['total'] or Decimal('0.00')
+            total_descuentos_existentes = (
+                (pagos_confirmados_existentes.aggregate(total=models.Sum('descuento'))['total'] or Decimal('0.00')) +
+                (pagos_confirmados_existentes.aggregate(total=models.Sum('ica'))['total'] or Decimal('0.00')) +
+                (pagos_confirmados_existentes.aggregate(total=models.Sum('retencion'))['total'] or Decimal('0.00')) +
+                (pagos_confirmados_existentes.aggregate(total=models.Sum('nota'))['total'] or Decimal('0.00'))
+            )
 
-            saldo_disponible = saldo_actual - pagos_confirmados_existentes
+            aplicado_existente = total_pagado_existente + total_descuentos_existentes
+            aplicado_nuevo = (
+                (self.valor_pagado or Decimal('0.00')) +
+                (self.descuento or Decimal('0.00')) +
+                (self.ica or Decimal('0.00')) +
+                (self.retencion or Decimal('0.00')) +
+                (self.nota or Decimal('0.00'))
+            )
+            total_aplicado = aplicado_existente + aplicado_nuevo
 
-            if self.valor_pagado > saldo_disponible:
+            if total_aplicado > saldo_actual:
+                excede = total_aplicado - saldo_actual
                 raise ValidationError(
-                    f"El pago de ${self.valor_pagado} excede el saldo pendiente de ${saldo_disponible}"
+                    f"El total aplicado (pago + descuentos) excede el saldo de la factura por ${excede}"
                 )
     
     def save(self, *args, **kwargs):

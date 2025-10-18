@@ -7,7 +7,7 @@ __pycache__/
 .env
 
 #archivos 
-
+comprobantes/
 
 *.md
 *.xlsx

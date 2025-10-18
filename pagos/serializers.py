@@ -1,6 +1,7 @@
 from django.core.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework import serializers
+from decimal import Decimal
 
 from facturas.models import Factura
 from facturas.serializers import FacturaListSerializer
@@ -20,7 +21,7 @@ class PagoListSerializer(serializers.ModelSerializer):
             'id', 'factura', 'factura_numero', 'cliente_nombre',
             'fecha_pago', 'valor_pagado', 'tipo_pago', 
             'numero_comprobante', 'usuario_registro', 'usuario_nombre',
-            'estado',
+            'estado', 'descuento', 'retencion', 'ica', 'nota',
             'creado'
         ]
 
@@ -37,6 +38,7 @@ class PagoDetailSerializer(serializers.ModelSerializer):
             'comprobante', 'numero_comprobante', 'notas', 
             'usuario_registro', 'usuario_registro_nombre',
             'estado', 'usuario_confirmacion_nombre', 'fecha_confirmacion',
+            'descuento', 'retencion', 'ica', 'nota',
             'creado', 'actualizado'
         ]
         read_only_fields = ['creado', 'actualizado', 'usuario_registro', 'estado', 'fecha_confirmacion']
@@ -49,17 +51,34 @@ class PagoCreateSerializer(serializers.ModelSerializer):
         model = Pago
         fields = [
             'factura_id', 'fecha_pago', 'valor_pagado', 'tipo_pago',
-            'comprobante', 'numero_comprobante', 'notas'
+            'comprobante', 'numero_comprobante', 'notas',
+            'descuento', 'retencion', 'ica', 'nota'
         ]
 
     def validate(self, attrs):
         """Validaciones del pago"""
         factura_id = attrs.get('factura_id')
-        valor_pagado = attrs.get('valor_pagado')
+        # normalizar cantidades
+        valor_pagado = Decimal(attrs.get('valor_pagado') or 0)
+        descuento = Decimal(attrs.get('descuento') or 0)
+        retencion = Decimal(attrs.get('retencion') or 0)
+        ica = Decimal(attrs.get('ica') or 0)
+        nota = Decimal(attrs.get('nota') or 0)
 
-        if valor_pagado <= 0:
+        for nombre, valor in (
+            ("valor_pagado", valor_pagado),
+            ("descuento", descuento),
+            ("retencion", retencion),
+            ("ica", ica),
+            ("nota", nota),
+        ):
+            if valor < 0:
+                raise serializers.ValidationError({nombre: "No puede ser negativo"})
+
+        total_aplicar = valor_pagado + descuento + retencion + ica + nota
+        if total_aplicar <= 0:
             raise serializers.ValidationError(
-                "El valor del pago debe ser mayor a cero"
+                "Debe indicar al menos un valor a aplicar (pago, descuento, retención, ICA o nota)"
             )
 
         # Validar que la factura existe; permitir registro sin validar saldo

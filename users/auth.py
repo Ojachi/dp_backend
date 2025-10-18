@@ -19,15 +19,23 @@ class CustomUserRegisterView(GenericAPIView):
     serializer_class = CustomUserSerializer
 
     def post(self, request):
-        serializer = CustomUserSerializer(data=request.data)
+        data = request.data.copy()
+        # Si no se envía ningún rol explícito, por defecto asignar Vendedor
+        role_flags = [
+            data.get('is_gerente'),
+            data.get('is_vendedor'),
+            data.get('is_distribuidor')
+        ]
+        if not any(str(v).lower() in ('true', '1') for v in role_flags):
+            data['is_vendedor'] = True
+
+        serializer = CustomUserSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         # Si serializer.save() retorna una lista, tomar el primer usuario
         if isinstance(user, list):
             user = user[0]
-        # Asignar grupo por defecto si se desea, por ejemplo "Vendedor"
-        group, created = Group.objects.get_or_create(name="Vendedor")
-        user.groups.add(group)
+        # El serializer ya asigna el grupo basado en las banderas de rol
         return Response(CustomUserSerializer(user).data, status=status.HTTP_201_CREATED)
 
 class CustomUserLoginView(GenericAPIView):

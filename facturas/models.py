@@ -74,9 +74,25 @@ class Factura(models.Model):
         return total
     
     @property
+    def total_descuentos(self):
+        """Suma de descuentos aplicados a la factura a través de pagos confirmados."""
+        pagos_qs = self.pagos.filter(estado='confirmado')  # type: ignore[attr-defined]
+        # Agregar por campo para evitar expresiones complejas
+        dcto = pagos_qs.aggregate(total=models.Sum('descuento'))['total'] or Decimal('0.00')
+        ica = pagos_qs.aggregate(total=models.Sum('ica'))['total'] or Decimal('0.00')
+        rete = pagos_qs.aggregate(total=models.Sum('retencion'))['total'] or Decimal('0.00')
+        nota = pagos_qs.aggregate(total=models.Sum('nota'))['total'] or Decimal('0.00')
+        return dcto + ica + rete + nota
+
+    @property
+    def total_aplicado(self):
+        """Total aplicado a la factura (pagos + descuentos confirmados)."""
+        return self.total_pagado + self.total_descuentos
+    
+    @property
     def saldo_pendiente(self):
         """Calcula el saldo pendiente de la factura"""
-        return self.valor_total - self.total_pagado
+        return self.valor_total - self.total_aplicado
     
     @property
     def esta_vencida(self):

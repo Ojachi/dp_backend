@@ -4,6 +4,9 @@ from .views import (
     CustomUserRetrieveUpdateDestroyView,
     AssignRoleView,
     RemoveRoleView,
+    ValidateEmailView,
+    ValidateUsernameView,
+    ResetUserPasswordView,
     UserProfileView,
     current_user_view,
     logout_view
@@ -28,4 +31,7 @@ urlpatterns = [
     path('users/<int:pk>/', CustomUserRetrieveUpdateDestroyView.as_view(), name='user-detail'),
     path('users/<int:pk>/assign-role/', AssignRoleView.as_view(), name='assign-role'),
     path('users/<int:pk>/remove-role/', RemoveRoleView.as_view(), name='remove-role'),
+    path('users/validar-email/', ValidateEmailView.as_view(), name='validate-email'),
+    path('users/validar-username/', ValidateUsernameView.as_view(), name='validate-username'),
+    path('users/<int:pk>/reset-password/', ResetUserPasswordView.as_view(), name='reset-user-password'),
 ]

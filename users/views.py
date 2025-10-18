@@ -16,7 +16,11 @@ from rest_framework.authentication import TokenAuthentication, SessionAuthentica
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
 
-class CustomUserListView(ListAPIView):
+from rest_framework.generics import ListCreateAPIView
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.contrib.auth.password_validation import validate_password
+
+class CustomUserListView(ListCreateAPIView):
     serializer_class = CustomUserSerializer
     queryset = CustomUser.objects.all()
     authentication_classes = [TokenAuthentication]
@@ -72,8 +76,7 @@ class AssignRoleView(APIView):
         serializer = AssignRoleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.update(user, serializer.validated_data)
-        role = serializer.validated_data.get("role")
-        return Response({"message": "Rol asignado correctamente", "role": role}, status=status.HTTP_200_OK)
+        return Response({"message": "Rol asignado correctamente"}, status=status.HTTP_200_OK)
 
 class RemoveRoleView(APIView):
     authentication_classes = [TokenAuthentication]
@@ -84,8 +87,56 @@ class RemoveRoleView(APIView):
         serializer = RemoveRoleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.update(user, serializer.validated_data)
-        role = serializer.validated_data.get("role")
-        return Response({"message": f"Rol '{role}' eliminado correctamente"}, status=status.HTTP_200_OK)
+        return Response({"message": "Rol eliminado correctamente"}, status=status.HTTP_200_OK)
+
+class ValidateEmailView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, IsGerente]
+
+    def get(self, request):
+        email = request.query_params.get('email', '').strip()
+        exclude_id = request.query_params.get('exclude_id')
+        if not email:
+            return Response({"valid": False, "message": "Email es requerido"}, status=status.HTTP_400_BAD_REQUEST)
+        qs = CustomUser.objects.filter(email__iexact=email)
+        if exclude_id:
+            qs = qs.exclude(pk=exclude_id)
+        if qs.exists():
+            return Response({"valid": False, "message": "El email ya está en uso"}, status=status.HTTP_200_OK)
+        return Response({"valid": True, "message": "Disponible"}, status=status.HTTP_200_OK)
+
+class ValidateUsernameView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, IsGerente]
+
+    def get(self, request):
+        username = request.query_params.get('username', '').strip()
+        exclude_id = request.query_params.get('exclude_id')
+        if not username:
+            return Response({"valid": False, "message": "Username es requerido"}, status=status.HTTP_400_BAD_REQUEST)
+        qs = CustomUser.objects.filter(username__iexact=username)
+        if exclude_id:
+            qs = qs.exclude(pk=exclude_id)
+        if qs.exists():
+            return Response({"valid": False, "message": "El nombre de usuario ya está en uso"}, status=status.HTTP_200_OK)
+        return Response({"valid": True, "message": "Disponible"}, status=status.HTTP_200_OK)
+
+class ResetUserPasswordView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, IsGerente]
+
+    def post(self, request, pk):
+        user = get_object_or_404(CustomUser, pk=pk)
+        password = request.data.get('password', '')
+        if not password:
+            return Response({"error": "La contraseña es requerida"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_password(password, user)
+        except DjangoValidationError as e:
+            return Response({"error": e.messages}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(password)
+        user.save()
+        return Response({"message": "Contraseña restablecida correctamente"}, status=status.HTTP_200_OK)
 
 class UserProfileView(APIView):
     """

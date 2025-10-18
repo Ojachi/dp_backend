@@ -132,6 +132,11 @@ def crear_pago_para_factura(user, factura: Factura, validated_data: Dict[str, ob
         "comprobante": validated_data.get("comprobante"),
         "numero_comprobante": validated_data.get("numero_comprobante"),
         "notas": validated_data.get("notas"),
+        # Campos de descuentos/retenciones/ICA/nota
+        "descuento": validated_data.get("descuento", 0),
+        "retencion": validated_data.get("retencion", 0),
+        "ica": validated_data.get("ica", 0),
+        "nota": validated_data.get("nota", 0),
     }
 
     return Pago.objects.create(**campos_creacion)
