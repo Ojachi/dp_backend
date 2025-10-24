@@ -22,7 +22,8 @@ class ServicioAlertas:
         alertas_generadas = 0
         
         for tipo_alerta in tipos_vencimiento:
-            dias_anticipacion = tipo_alerta.dias_anticipacion or 7
+            # Simplificación: limitar anticipación a 5 días independientemente de configuración
+            dias_anticipacion = 5
             fecha_limite = timezone.now().date() + timedelta(days=dias_anticipacion)
             
             # Buscar facturas que vencen en el período especificado O que ya están vencidas
@@ -200,10 +201,14 @@ class ServicioAlertas:
             # Vendedor asignado recibe alertas de sus facturas
             if factura.vendedor:
                 usuarios.append(factura.vendedor)
-            
-            # Distribuidor asignado recibe alertas de sus facturas
-            if factura.distribuidor:
-                usuarios.append(factura.distribuidor)
+
+        # Simplificación: excluir distribuidores de los destinatarios
+        try:
+            from django.contrib.auth.models import Group
+            distribuidores = set(Group.objects.get(name='Distribuidor').user_set.values_list('id', flat=True))
+            usuarios = [u for u in usuarios if u.id not in distribuidores]
+        except Exception:  # pragma: no cover - si el grupo no existe o cualquier otro error, no filtramos
+            pass
         
         return list(set(usuarios))  # Eliminar duplicados
     
@@ -264,10 +269,9 @@ class ServicioAlertas:
     @classmethod
     def procesar_todas_las_alertas(cls):
         """Procesar todas las alertas automáticas"""
+        # Simplificación: solo generar alertas de vencimiento
         resultados = {
             'vencimiento': cls.generar_alertas_vencimiento(),
-            'montos_altos': cls.generar_alertas_montos_altos(),
-            'sin_pagos': cls.generar_alertas_sin_pagos(),
         }
         
         total_generadas = sum(resultados.values())

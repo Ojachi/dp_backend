@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.db import models
-from .models import Cliente
+from .models import Cliente, Poblacion, ClienteSucursal
 
 class ClienteListSerializer(serializers.ModelSerializer):
     """Serializer para listar clientes"""
@@ -94,10 +94,11 @@ class ClienteDetailSerializer(serializers.ModelSerializer):
 
 class ClienteCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer para crear/actualizar clientes"""
+    id = serializers.IntegerField(read_only=True)
     
     class Meta:
         model = Cliente
-        fields = ['nombre', 'direccion', 'telefono', 'email']
+        fields = ['id', 'nombre', 'direccion', 'telefono', 'email']
     
     def validate_nombre(self, value):
         """Validar nombre único"""
@@ -105,6 +106,41 @@ class ClienteCreateUpdateSerializer(serializers.ModelSerializer):
             return value
         if Cliente.objects.filter(nombre=value).exists():
             raise serializers.ValidationError("Ya existe un cliente con este nombre")
+        return value
+
+
+class PoblacionSerializer(serializers.ModelSerializer):
+    vendedor_nombre = serializers.CharField(source='vendedor.get_full_name', read_only=True)
+    distribuidor_nombre = serializers.CharField(source='distribuidor.get_full_name', read_only=True)
+
+    class Meta:
+        model = Poblacion
+        fields = [
+            'id', 'nombre', 'descripcion', 'vendedor', 'vendedor_nombre',
+            'distribuidor', 'distribuidor_nombre', 'creado', 'actualizado'
+        ]
+        read_only_fields = ['creado', 'actualizado']
+
+
+class ClienteSucursalSerializer(serializers.ModelSerializer):
+    cliente_nombre = serializers.CharField(source='cliente.nombre', read_only=True)
+    poblacion_nombre = serializers.CharField(source='poblacion.nombre', read_only=True)
+
+    class Meta:
+        model = ClienteSucursal
+        fields = [
+            'id', 'cliente', 'cliente_nombre', 'poblacion', 'poblacion_nombre',
+            'codigo', 'condicion_pago', 'direccion', 'activo', 'creado', 'actualizado'
+        ]
+        read_only_fields = ['creado', 'actualizado']
+    
+    def validate_codigo(self, value):
+        """Enforce código de sucursal único a nivel global."""
+        qs = ClienteSucursal.objects.filter(codigo=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError('Este código ya está en uso por otra sucursal')
         return value
     
     def validate_email(self, value):

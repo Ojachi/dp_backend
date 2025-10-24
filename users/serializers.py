@@ -46,6 +46,15 @@ class CustomUserSerializer(serializers.ModelSerializer):
         if selected != 1 and self.instance is None:
             # En creación exigimos un solo rol
             raise serializers.ValidationError({"roles": "Debe seleccionar exactamente un rol"})
+
+        # No permitir que un usuario se desactive a sí mismo
+        request = self.context.get('request') if hasattr(self, 'context') else None
+        if self.instance is not None and request is not None:
+            if 'is_active' in attrs and attrs.get('is_active') is False:
+                if getattr(request.user, 'pk', None) == getattr(self.instance, 'pk', None):
+                    raise serializers.ValidationError({
+                        'is_active': 'No puede desactivarse a sí mismo.'
+                    })
         return attrs
 
     def _apply_role_groups(self, user, is_gerente, is_vendedor, is_distribuidor):

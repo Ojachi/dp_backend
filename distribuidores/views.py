@@ -33,7 +33,7 @@ class DistribuidorListCreateView(generics.ListCreateAPIView):
         if user.groups.filter(name='Gerente').exists():
             # Gerentes ven todos los distribuidores
             pass
-        elif user.groups.filter(name='Repartidor').exists():
+        elif user.groups.filter(name='Distribuidor').exists():
             # Distribuidores solo se ven a sí mismos
             queryset = queryset.filter(usuario=user)
         else:
@@ -131,7 +131,7 @@ def mi_perfil_distribuidor(request):
     user = request.user
     
     # Verificar que sea distribuidor
-    if not user.groups.filter(name='Repartidor').exists():
+    if not user.groups.filter(name='Distribuidor').exists():
         return Response(
             {'error': 'Solo los distribuidores pueden acceder a este endpoint'},
             status=status.HTTP_403_FORBIDDEN

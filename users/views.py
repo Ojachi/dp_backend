@@ -67,6 +67,15 @@ class CustomUserRetrieveUpdateDestroyView(RetrieveUpdateDestroyAPIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated, IsGerente]
 
+    def destroy(self, request, *args, **kwargs):  # type: ignore[override]
+        instance = self.get_object()
+        # Evitar que un usuario se elimine a sí mismo
+        if getattr(request.user, 'pk', None) == getattr(instance, 'pk', None):
+            return Response({
+                'detail': 'No puede eliminar su propio usuario.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        return super().destroy(request, *args, **kwargs)
+
 class AssignRoleView(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated, IsGerente]

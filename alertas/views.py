@@ -268,22 +268,12 @@ def generar_alertas_manual(request):
         else:
             resultados = {'detalle': {}, 'total_generadas': 0}
             total_generadas = 0
-            
+
             if 'vencimiento' in tipos:
                 cant = ServicioAlertas.generar_alertas_vencimiento()
                 resultados['detalle']['vencimiento'] = cant
                 total_generadas += cant
-            
-            if 'monto_alto' in tipos:
-                cant = ServicioAlertas.generar_alertas_montos_altos()
-                resultados['detalle']['montos_altos'] = cant
-                total_generadas += cant
-            
-            if 'sin_pagos' in tipos:
-                cant = ServicioAlertas.generar_alertas_sin_pagos()
-                resultados['detalle']['sin_pagos'] = cant
-                total_generadas += cant
-            
+
             resultados['total_generadas'] = total_generadas
         
         return Response({

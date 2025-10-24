@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
-from clientes.models import Cliente
+from clientes.models import Cliente, ClienteSucursal
 
 if TYPE_CHECKING:  # pragma: no cover
     from pagos.models import Pago
@@ -23,9 +23,21 @@ class Factura(models.Model):
         ('FE', 'Factura Electrónica'),
         ('R', 'Remisión'),
     ]
+    ESTADOS_ENTREGA = [
+        ('pendiente', 'Pendiente por entregar'),
+        ('entregado', 'Entregado'),
+        ('devolucion_total', 'Devolución total'),
+    ]
     
     numero_factura = models.CharField(max_length=50, unique=True)
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name='facturas')
+    cliente_sucursal = models.ForeignKey(
+        ClienteSucursal,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='facturas'
+    )
     vendedor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='facturas_vendedor')
     distribuidor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='facturas_distribuidor')
     tipo = models.CharField(max_length=2, choices=TIPOS_FACTURA, default='FE', help_text='Tipo de factura: FE (Factura Electrónica) o R (Remisión)')
@@ -33,6 +45,15 @@ class Factura(models.Model):
     fecha_vencimiento = models.DateField()
     valor_total = models.DecimalField(max_digits=12, decimal_places=2)
     estado = models.CharField(max_length=20, choices=ESTADOS, default='pendiente')
+    estado_entrega = models.CharField(max_length=20, choices=ESTADOS_ENTREGA, default='pendiente')
+    entrega_actualizado = models.DateTimeField(null=True, blank=True)
+    entrega_actualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='facturas_entrega_actualizadas'
+    )
     observaciones = models.TextField(blank=True, null=True)
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
@@ -45,6 +66,7 @@ class Factura(models.Model):
             models.Index(fields=['vendedor', 'estado']),
             models.Index(fields=['fecha_vencimiento']),
             models.Index(fields=['tipo']),
+            models.Index(fields=['cliente_sucursal']),
         ]
 
     def __str__(self):

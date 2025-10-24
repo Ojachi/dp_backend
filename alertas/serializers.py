@@ -116,8 +116,6 @@ class GenerarAlertasSerializer(serializers.Serializer):
     tipos = serializers.MultipleChoiceField(
         choices=[
             ('vencimiento', 'Vencimiento'),
-            ('monto_alto', 'Monto Alto'),
-            ('sin_pagos', 'Sin Pagos'),
             ('todas', 'Todas')
         ],
         default=['todas']

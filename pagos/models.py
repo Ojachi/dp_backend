@@ -5,6 +5,22 @@ from decimal import Decimal
 from facturas.models import Factura
 from django.conf import settings
 
+
+class CuentaPago(models.Model):
+    """Cuentas disponibles para pagos por transferencia/consignación."""
+    nombre = models.CharField(max_length=100)
+    banco = models.CharField(max_length=100, blank=True, null=True)
+    numero = models.CharField(max_length=50, blank=True, null=True)
+    activo = models.BooleanField(default=True)
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['nombre']
+
+    def __str__(self):  # pragma: no cover - representación
+        return f"{self.nombre} ({self.banco or 'N/A'})"
+
 class Pago(models.Model):
     TIPOS_PAGO = [
         ('efectivo', 'Efectivo'),
@@ -22,12 +38,20 @@ class Pago(models.Model):
     ]
     
     factura = models.ForeignKey(Factura, on_delete=models.CASCADE, related_name='pagos')
+    codigo = models.CharField(max_length=64, blank=True, null=True, db_index=True,
+                              help_text="<numero_factura>-NNN generado automáticamente al crear")
     fecha_pago = models.DateTimeField(default=timezone.now)
+    fecha_registro = models.DateTimeField(auto_now_add=True, null=True)
     valor_pagado = models.DecimalField(max_digits=12, decimal_places=2)
     tipo_pago = models.CharField(max_length=30, choices=TIPOS_PAGO, default='efectivo')
-    comprobante = models.FileField(upload_to='comprobantes/%Y/%m/', blank=True, null=True)
+    # Contenido base64 del comprobante (imagen/pdf)
+    comprobante_b64 = models.TextField(blank=True, null=True,
+                                       help_text="Contenido base64 del comprobante (imagen/pdf) si no se adjunta archivo")
     numero_comprobante = models.CharField(max_length=100, blank=True, null=True, 
                                         help_text="Número de referencia del comprobante")
+    referencia = models.CharField(max_length=120, blank=True, null=True,
+                                  help_text="Referencia de transferencia/cheque, etc.")
+    cuenta = models.ForeignKey(CuentaPago, on_delete=models.SET_NULL, null=True, blank=True)
     notas = models.TextField(blank=True, null=True)
     # Descuentos aplicables a la factura (no al pago), registrados junto con este pago
     descuento = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
@@ -55,6 +79,7 @@ class Pago(models.Model):
             models.Index(fields=['usuario_registro', 'fecha_pago']),
             models.Index(fields=['tipo_pago']),
             models.Index(fields=['estado']),
+            models.Index(fields=['codigo']),
         ]
 
     def __str__(self):
@@ -84,8 +109,24 @@ class Pago(models.Model):
         if total_aplicar_actual <= 0:
             raise ValidationError("Debe indicar al menos un valor a aplicar (pago, descuento, retención, ICA o nota)")
 
+        # FE-only: ICA/retención aplican solo a Facturas tipo 'FE' y solo una vez por factura
+        if getattr(self, 'factura', None):
+            if (self.ica or 0) > 0 or (self.retencion or 0) > 0:
+                if self.factura.tipo != 'FE':  # type: ignore[attr-defined]
+                    raise ValidationError("ICA y retención solo aplican a facturas de tipo FE")
+                # Validar que no existan otros pagos confirmados con ica/retención en esta factura
+                pagos_conf = self.factura.pagos.exclude(pk=self.pk).filter(  # type: ignore[attr-defined]
+                    estado='confirmado'
+                )
+                ya_ica = pagos_conf.filter(ica__gt=0).exists()
+                ya_rete = pagos_conf.filter(retencion__gt=0).exists()
+                if ya_ica and (self.ica or 0) > 0:
+                    raise ValidationError("ICA ya fue aplicado previamente a esta factura")
+                if ya_rete and (self.retencion or 0) > 0:
+                    raise ValidationError("La retención ya fue aplicada previamente a esta factura")
+
         # Si el pago se encuentra confirmado (o será confirmado en este guardado), validar no exceder saldo
-        if self.factura_id and self.estado == 'confirmado':  # type: ignore[attr-defined]
+        if getattr(self, 'factura', None) and self.estado == 'confirmado':  # type: ignore[attr-defined]
             saldo_actual = self.factura.valor_total
             pagos_confirmados_existentes = self.factura.pagos.exclude(pk=self.pk).filter(  # type: ignore[attr-defined]
                 estado='confirmado'
@@ -116,6 +157,14 @@ class Pago(models.Model):
     
     def save(self, *args, **kwargs):
         """Override save para validar y actualizar estado de factura"""
+        # Generar código si no existe: <numero_factura>-NNN secuencial por factura
+        if not self.codigo and getattr(self, 'factura', None):
+            pref = getattr(self.factura, 'numero_factura', None)  # type: ignore[attr-defined]
+            if pref:
+                # Contar pagos existentes (incluye no confirmados), siguiente número
+                count = self.factura.pagos.exclude(codigo__isnull=True).count()  # type: ignore[attr-defined]
+                self.codigo = f"{pref}-{count+1:03d}"
+
         self.full_clean()  # Ejecutar validaciones
         super().save(*args, **kwargs)
         

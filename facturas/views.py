@@ -60,7 +60,13 @@ class FacturaListCreateView(generics.ListCreateAPIView):
         # Actualizar automáticamente facturas vencidas antes de consultar
         Factura.actualizar_estados_vencidas()
         
-        queryset = Factura.objects.select_related('cliente', 'vendedor', 'distribuidor')
+        queryset = Factura.objects.select_related(
+            'cliente',
+            'vendedor',
+            'distribuidor',
+            'cliente_sucursal',
+            'cliente_sucursal__poblacion',
+        )
         
         # Filtrar según el rol del usuario
         if user.groups.filter(name='Gerente').exists():
@@ -141,7 +147,13 @@ class FacturaDetailView(generics.RetrieveUpdateDestroyAPIView):
         # Actualizar automáticamente facturas vencidas antes de consultar
         Factura.actualizar_estados_vencidas()
         
-        queryset = Factura.objects.select_related('cliente', 'vendedor', 'distribuidor')
+        queryset = Factura.objects.select_related(
+            'cliente',
+            'vendedor',
+            'distribuidor',
+            'cliente_sucursal',
+            'cliente_sucursal__poblacion',
+        )
         
         # Filtrar según el rol del usuario
         if user.groups.filter(name='Gerente').exists():
@@ -154,10 +166,29 @@ class FacturaDetailView(generics.RetrieveUpdateDestroyAPIView):
             return queryset.none()
     
     def perform_update(self, serializer):
-        # Solo los gerentes pueden editar facturas
-        if not self.request.user.groups.filter(name='Gerente').exists():
-            raise PermissionDenied("Solo los gerentes pueden editar facturas")
-        serializer.save()
+        # Permisos: gerente puede editar todo; distribuidor puede editar estado_entrega y observaciones; vendedor no edita
+        user = self.request.user
+        is_gerente = user.groups.filter(name='Gerente').exists()
+        is_distrib = user.groups.filter(name='Distribuidor').exists()
+        if not (is_gerente or is_distrib):
+            raise PermissionDenied("No tienes permisos para editar esta factura")
+
+        instance = self.get_object()
+        data = serializer.validated_data
+        # Si distribuidor intenta cambiar campos que no son de entrega, bloquear
+        if is_distrib:
+            campos_permitidos = {'estado_entrega', 'observaciones'}
+            no_permitidos = set(data.keys()) - campos_permitidos
+            if no_permitidos:
+                raise PermissionDenied("El distribuidor solo puede cambiar estado de entrega u observaciones")
+
+        obj = serializer.save()
+        # Si cambió el estado de entrega, marcar auditoría
+        if 'estado_entrega' in data:
+            from django.utils import timezone
+            obj.entrega_actualizado = timezone.now()
+            obj.entrega_actualizado_por = user
+            obj.save(update_fields=['entrega_actualizado', 'entrega_actualizado_por'])
     
     def perform_destroy(self, instance):
         # Solo los gerentes pueden eliminar facturas

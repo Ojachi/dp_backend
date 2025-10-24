@@ -4,11 +4,13 @@ from rest_framework.response import Response
 from django.db.models import Q, Count, Sum
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from .models import Cliente
+from .models import Cliente, Poblacion, ClienteSucursal
 from .serializers import (
     ClienteListSerializer,
     ClienteDetailSerializer,
-    ClienteCreateUpdateSerializer
+    ClienteCreateUpdateSerializer,
+    PoblacionSerializer,
+    ClienteSucursalSerializer,
 )
 
 class ClienteViewSet(viewsets.ModelViewSet):
@@ -111,3 +113,24 @@ class ClienteViewSet(viewsets.ModelViewSet):
             'cliente': cliente.nombre,
             'historial_pagos': pagos_data
         })
+
+
+class PoblacionViewSet(viewsets.ModelViewSet):
+    queryset = Poblacion.objects.select_related('vendedor', 'distribuidor')
+    serializer_class = PoblacionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    search_fields = ['nombre']
+    ordering_fields = ['nombre']
+    ordering = ['nombre']
+
+
+class ClienteSucursalViewSet(viewsets.ModelViewSet):
+    queryset = ClienteSucursal.objects.select_related('cliente', 'poblacion')
+    serializer_class = ClienteSucursalSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['cliente', 'poblacion', 'activo', 'condicion_pago']
+    search_fields = ['codigo', 'cliente__nombre', 'poblacion__nombre']
+    ordering_fields = ['codigo', 'creado']
+    ordering = ['-creado']

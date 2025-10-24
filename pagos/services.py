@@ -75,14 +75,15 @@ def obtener_metodos_pago() -> List[Dict[str, object]]:
 
 def filtrar_pagos_por_usuario(user, params) -> QuerySet[Pago]:
     """Construye queryset de pagos según permisos y filtros enviados."""
-    queryset = Pago.objects.select_related("factura", "factura__cliente", "usuario_registro")
+    queryset = Pago.objects.select_related("factura", "factura__cliente", "usuario_registro", "cuenta")
 
     if _usuario_tiene_rol(user, "Gerente"):
         pass
     elif _usuario_tiene_rol(user, "Vendedor"):
         queryset = queryset.filter(factura__vendedor=user)
     elif _usuario_tiene_rol(user, "Distribuidor"):
-        queryset = queryset.filter(factura__distribuidor=user)
+        # Distribuidor solo ve pagos que él registró
+        queryset = queryset.filter(usuario_registro=user)
     else:
         return queryset.none()
 
@@ -129,8 +130,10 @@ def crear_pago_para_factura(user, factura: Factura, validated_data: Dict[str, ob
         "valor_pagado": validated_data.get("valor_pagado"),
         "tipo_pago": validated_data.get("tipo_pago"),
         "fecha_pago": validated_data.get("fecha_pago", timezone.now()),
-        "comprobante": validated_data.get("comprobante"),
+    "comprobante_b64": validated_data.get("comprobante_b64"),
         "numero_comprobante": validated_data.get("numero_comprobante"),
+        "referencia": validated_data.get("referencia"),
+        "cuenta": validated_data.get("cuenta"),
         "notas": validated_data.get("notas"),
         # Campos de descuentos/retenciones/ICA/nota
         "descuento": validated_data.get("descuento", 0),
@@ -210,6 +213,8 @@ def generar_filas_exportacion(queryset: QuerySet[Pago]) -> Iterable[List[object]
         "Tipo pago",
         "Número comprobante",
         "Registrado por",
+        "Código",
+        "Cuenta",
     ]
 
     for pago in queryset.iterator():
@@ -222,4 +227,6 @@ def generar_filas_exportacion(queryset: QuerySet[Pago]) -> Iterable[List[object]
             pago.get_tipo_pago_display(),  # type: ignore[attr-defined]
             pago.numero_comprobante or "",
             pago.usuario_registro.get_full_name() if pago.usuario_registro else "",
+            pago.codigo or "",
+            (pago.cuenta.nombre if pago.cuenta else ""),
         ]

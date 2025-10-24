@@ -15,8 +15,10 @@ from rest_framework.response import Response
 from facturas.models import Factura
 from users.permissions import IsGerente, IsVendedor
 
-from .models import Pago
+from .models import Pago, CuentaPago
 from .serializers import (
+    CuentaPagoSerializer,
+    CuentaPagoCreateUpdateSerializer,
     PagoListSerializer,
     PagoDetailSerializer,
     PagoCreateSerializer,
@@ -221,6 +223,56 @@ def dashboard_pagos(request):
 def listar_metodos_pago(request):
     """Listado de métodos de pago disponibles."""
     return Response(obtener_metodos_pago())
+
+
+class CuentaPagoListCreateView(generics.ListCreateAPIView):
+    """Listar (GET) y crear (POST) cuentas de pago.
+    GET: cualquier autenticado
+    POST: solo Gerente
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = CuentaPagoSerializer
+
+    def get_queryset(self) -> QuerySet[CuentaPago]:  # type: ignore[override]
+        # Por defecto listamos solo activas
+        return CuentaPago.objects.filter(activo=True).order_by('nombre')
+
+    def get_serializer_class(self) -> Type[Serializer]:  # type: ignore[override]
+        if self.request.method == 'POST':
+            return CuentaPagoCreateUpdateSerializer
+        return CuentaPagoSerializer
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if not user.groups.filter(name='Gerente').exists():
+            raise PermissionDenied('Solo los gerentes pueden crear cuentas de pago')
+        serializer.save(activo=True)
+
+
+class CuentaPagoDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Detalle/actualización/eliminación de cuenta de pago.
+    GET: cualquier autenticado
+    PUT/PATCH/DELETE: solo Gerente
+    """
+    permission_classes = [IsAuthenticated]
+    queryset = CuentaPago.objects.all().order_by('nombre')
+
+    def get_serializer_class(self) -> Type[Serializer]:  # type: ignore[override]
+        if self.request.method in ['PUT', 'PATCH']:
+            return CuentaPagoCreateUpdateSerializer
+        return CuentaPagoSerializer
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        if not user.groups.filter(name='Gerente').exists():
+            raise PermissionDenied('Solo los gerentes pueden actualizar cuentas de pago')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        if not user.groups.filter(name='Gerente').exists():
+            raise PermissionDenied('Solo los gerentes pueden eliminar cuentas de pago')
+        instance.delete()
 
 
 @api_view(['POST'])

@@ -6,52 +6,119 @@ from decimal import Decimal
 from facturas.models import Factura
 from facturas.serializers import FacturaListSerializer
 
-from .models import Pago
+from .models import Pago, CuentaPago
 from .services import crear_pago_para_factura
+
+
+class CuentaPagoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CuentaPago
+        fields = [
+            'id', 'nombre', 'banco', 'numero', 'activo'
+        ]
+
+class CuentaPagoCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CuentaPago
+        fields = ['nombre', 'numero']
+    
+    def validate_nombre(self, value: str):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('El nombre es requerido')
+        return value
+    
+    def validate_numero(self, value: str):
+        value = (value or '').strip()
+        # El número puede ser alfanumérico; validar largo básico si se desea
+        return value
 
 class PagoListSerializer(serializers.ModelSerializer):
     """Serializer para listar pagos"""
     factura_numero = serializers.CharField(source='factura.numero_factura', read_only=True)
     cliente_nombre = serializers.CharField(source='factura.cliente.nombre', read_only=True)
     usuario_nombre = serializers.CharField(source='usuario_registro.get_full_name', read_only=True)
+    cliente_codigo = serializers.SerializerMethodField()
+    aplicado = serializers.SerializerMethodField()
+    tipo_pago_nombre = serializers.CharField(source='get_tipo_pago_display', read_only=True)
+    cuenta_nombre = serializers.CharField(source='cuenta.nombre', read_only=True)
+    tiene_comprobante = serializers.SerializerMethodField()
 
     class Meta:
         model = Pago
         fields = [
-            'id', 'factura', 'factura_numero', 'cliente_nombre',
-            'fecha_pago', 'valor_pagado', 'tipo_pago', 
-            'numero_comprobante', 'usuario_registro', 'usuario_nombre',
-            'estado', 'descuento', 'retencion', 'ica', 'nota',
+            'id', 'codigo', 'factura', 'factura_numero', 'cliente_codigo', 'cliente_nombre',
+            'fecha_pago', 'fecha_registro', 'valor_pagado', 'tipo_pago', 
+            'tipo_pago_nombre', 'cuenta', 'cuenta_nombre', 'tiene_comprobante',
+            'usuario_registro', 'usuario_nombre',
+            'estado', 'descuento', 'retencion', 'ica', 'nota', 'aplicado',
             'creado'
         ]
+
+    def get_cliente_codigo(self, obj):
+        suc = getattr(obj.factura, 'cliente_sucursal', None)
+        return suc.codigo if suc else None
+
+    def get_aplicado(self, obj):
+        from decimal import Decimal
+        return (
+            (obj.valor_pagado or Decimal('0.00')) +
+            (obj.descuento or Decimal('0.00')) +
+            (obj.ica or Decimal('0.00')) +
+            (obj.retencion or Decimal('0.00')) +
+            (obj.nota or Decimal('0.00'))
+        )
+
+    def get_tiene_comprobante(self, obj):
+        return bool(obj.comprobante_b64)
 
 class PagoDetailSerializer(serializers.ModelSerializer):
     """Serializer detallado para pagos"""
     factura = FacturaListSerializer(read_only=True)
     usuario_registro_nombre = serializers.CharField(source='usuario_registro.get_full_name', read_only=True)
     usuario_confirmacion_nombre = serializers.CharField(source='usuario_confirmacion.get_full_name', read_only=True)
+    cliente_codigo = serializers.SerializerMethodField()
+    aplicado = serializers.SerializerMethodField()
+    tipo_pago_nombre = serializers.CharField(source='get_tipo_pago_display', read_only=True)
+    comprobante_b64 = serializers.CharField(read_only=True)
+    cuenta_nombre = serializers.CharField(source='cuenta.nombre', read_only=True)
     
     class Meta:
         model = Pago
         fields = [
-            'id', 'factura', 'fecha_pago', 'valor_pagado', 'tipo_pago',
-            'comprobante', 'numero_comprobante', 'notas', 
+            'id', 'codigo', 'factura', 'fecha_pago', 'fecha_registro', 'valor_pagado', 'tipo_pago', 'tipo_pago_nombre',
+            'comprobante_b64', 'numero_comprobante', 'referencia', 'cuenta', 'cuenta_nombre', 'notas', 
             'usuario_registro', 'usuario_registro_nombre',
             'estado', 'usuario_confirmacion_nombre', 'fecha_confirmacion',
-            'descuento', 'retencion', 'ica', 'nota',
+            'descuento', 'retencion', 'ica', 'nota', 'cliente_codigo', 'aplicado',
             'creado', 'actualizado'
         ]
         read_only_fields = ['creado', 'actualizado', 'usuario_registro', 'estado', 'fecha_confirmacion']
 
+    def get_cliente_codigo(self, obj):
+        suc = getattr(obj.factura, 'cliente_sucursal', None)
+        return suc.codigo if suc else None
+
+    def get_aplicado(self, obj):
+        from decimal import Decimal
+        return (
+            (obj.valor_pagado or Decimal('0.00')) +
+            (obj.descuento or Decimal('0.00')) +
+            (obj.ica or Decimal('0.00')) +
+            (obj.retencion or Decimal('0.00')) +
+            (obj.nota or Decimal('0.00'))
+        )
+
 class PagoCreateSerializer(serializers.ModelSerializer):
     """Serializer para crear pagos"""
     factura_id = serializers.IntegerField()
+    comprobante_b64 = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = Pago
         fields = [
             'factura_id', 'fecha_pago', 'valor_pagado', 'tipo_pago',
-            'comprobante', 'numero_comprobante', 'notas',
+            'comprobante_b64', 'numero_comprobante', 'referencia', 'cuenta', 'notas',
             'descuento', 'retencion', 'ica', 'nota'
         ]
 
@@ -116,7 +183,7 @@ class PagoUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pago
         fields = [
-            'fecha_pago', 'tipo_pago', 'comprobante', 
+            'fecha_pago', 'tipo_pago', 
             'numero_comprobante', 'notas'
         ]
         
