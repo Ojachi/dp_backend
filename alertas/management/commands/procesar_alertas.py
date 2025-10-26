@@ -6,15 +6,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
-    help = 'Procesa automáticamente todas las alertas del sistema'
+    help = 'Genera alertas de vencimiento (próximas a vencer y vencidas)'
     
     def add_arguments(self, parser):
         parser.add_argument(
             '--tipos',
             nargs='+',
             default=['todas'],
-            choices=['vencimiento', 'monto_alto', 'sin_pagos', 'todas'],
-            help='Tipos de alertas a procesar (por defecto: todas)'
+            choices=['vencimiento', 'todas'],
+            help='Tipos de alertas a procesar (por defecto: todas=vencimiento)'
         )
         
         parser.add_argument(
@@ -36,31 +36,14 @@ class Command(BaseCommand):
             if 'todas' in tipos:
                 resultados = ServicioAlertas.procesar_todas_las_alertas()
             else:
-                resultados = {'detalle': {}}
-                total_generadas = 0
+                resultados = {'detalle': {}, 'total_generadas': 0}
                 
                 if 'vencimiento' in tipos:
                     if verbose:
                         self.stdout.write("Procesando alertas de vencimiento...")
                     cant = ServicioAlertas.generar_alertas_vencimiento()
                     resultados['detalle']['vencimiento'] = cant
-                    total_generadas += cant
-                    
-                if 'monto_alto' in tipos:
-                    if verbose:
-                        self.stdout.write("Procesando alertas de montos altos...")
-                    cant = ServicioAlertas.generar_alertas_montos_altos()
-                    resultados['detalle']['montos_altos'] = cant
-                    total_generadas += cant
-                    
-                if 'sin_pagos' in tipos:
-                    if verbose:
-                        self.stdout.write("Procesando alertas de sin pagos...")
-                    cant = ServicioAlertas.generar_alertas_sin_pagos()
-                    resultados['detalle']['sin_pagos'] = cant
-                    total_generadas += cant
-                
-                resultados['total_generadas'] = total_generadas
+                    resultados['total_generadas'] += cant
             
             # Mostrar resultados
             total = resultados['total_generadas']

@@ -22,19 +22,19 @@ def generar_alertas_factura_cambios(sender, instance, created, **kwargs):
     try:
         # Si es una nueva factura, verificar si necesita alerta inmediata
         if created:
+            hoy = timezone.now().date()
             # Verificar si la factura ya está vencida al crearse
-            if instance.fecha_vencimiento < timezone.now().date():
+            if instance.fecha_vencimiento < hoy:
                 logger.info(f"Factura {instance.numero_factura} creada ya vencida - generando alerta")
-                ServicioAlertas.generar_alerta_factura_especifica(instance, tipo='vencida')
-            
-            # Verificar si es un monto alto
-            elif instance.valor_total > 1000000:  # Configurable
-                logger.info(f"Factura {instance.numero_factura} con monto alto - generando alerta")
-                ServicioAlertas.generar_alerta_factura_especifica(instance, tipo='monto_alto')
+                ServicioAlertas.generar_alerta_factura_especifica(instance, tipo='vencimiento')
+            # Si vence en los próximos 5 días, generar alerta de "por vencer"
+            elif instance.fecha_vencimiento <= (hoy + timezone.timedelta(days=5)):
+                logger.info(f"Factura {instance.numero_factura} creada por vencer en <=5 días - generando alerta")
+                ServicioAlertas.generar_alerta_factura_especifica(instance, tipo='vencimiento')
         
         # Si cambió el estado a 'vencida', generar alerta inmediata
         if instance.estado == 'vencida':
-            ServicioAlertas.generar_alerta_factura_especifica(instance, tipo='vencida')
+            ServicioAlertas.generar_alerta_factura_especifica(instance, tipo='vencimiento')
             logger.info(f"Alerta generada automáticamente para factura vencida: {instance.numero_factura}")
     
     except Exception as e:

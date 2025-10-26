@@ -1,10 +1,10 @@
 from rest_framework import serializers
 import re
 
-from .models import Factura, FacturaImportacion
+from .models import Factura
 from vendedores.models import Vendedor
 from distribuidores.models import Distribuidor
-from clientes.serializers import ClienteListSerializer
+from clientes.serializers import ClienteListSerializer, PoblacionSerializer
 from users.serializers import UserBasicSerializer
 from clientes.models import Cliente, ClienteSucursal
 
@@ -66,6 +66,7 @@ class FacturaDetailSerializer(serializers.ModelSerializer):
     cliente = ClienteListSerializer(read_only=True)
     vendedor = UserBasicSerializer(read_only=True)
     distribuidor = UserBasicSerializer(read_only=True)
+    poblacion = serializers.SerializerMethodField()
     total_pagado = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     saldo_pendiente = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     esta_vencida = serializers.BooleanField(read_only=True)
@@ -87,6 +88,7 @@ class FacturaDetailSerializer(serializers.ModelSerializer):
             'fecha_emision', 'fecha_vencimiento', 'valor_total', 'estado', 'estado_entrega',
             'observaciones', 'total_pagado', 'saldo_pendiente', 
             'cliente_codigo', 'condicion_pago',
+            'poblacion',
             'esta_vencida', 'dias_vencimiento', 'creado', 'actualizado'
         ]
         read_only_fields = ['creado', 'actualizado']
@@ -120,6 +122,14 @@ class FacturaDetailSerializer(serializers.ModelSerializer):
     def get_condicion_pago(self, obj):
         suc = getattr(obj, 'cliente_sucursal', None)
         return suc.get_condicion_pago_display() if suc else None
+
+    def get_poblacion(self, obj):
+        """Retorna la población asociada a la sucursal del cliente en la factura (si existe)."""
+        suc = getattr(obj, 'cliente_sucursal', None)
+        poblacion = getattr(suc, 'poblacion', None) if suc else None
+        if poblacion is None:
+            return None
+        return PoblacionSerializer(poblacion).data
 
     def validate(self, attrs):
         """Validaciones generales"""
@@ -385,22 +395,4 @@ class FacturaUpdateSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class FacturaImportacionSerializer(serializers.ModelSerializer):
-    usuario = UserBasicSerializer(read_only=True)
-
-    class Meta:
-        model = FacturaImportacion
-        fields = [
-            'id',
-            'archivo_nombre',
-            'estado',
-            'total_registros',
-            'registros_validos',
-            'registros_invalidos',
-            'detalle',
-            'errores',
-            'usuario',
-            'creado',
-            'actualizado',
-        ]
-        read_only_fields = fields
+    

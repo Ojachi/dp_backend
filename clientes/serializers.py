@@ -142,15 +142,4 @@ class ClienteSucursalSerializer(serializers.ModelSerializer):
         if qs.exists():
             raise serializers.ValidationError('Este código ya está en uso por otra sucursal')
         return value
-    
-    def validate_email(self, value):
-        """Validar email único si se proporciona"""
-        if not value:
-            return value
-            
-        if self.instance and self.instance.email == value:
-            return value
-            
-        if Cliente.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Ya existe un cliente con este email")
-        return value
+

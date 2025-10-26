@@ -1,21 +1,17 @@
-import csv
-import io
-from datetime import datetime
-
 from rest_framework import generics, status, filters
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, Q
 from django.utils import timezone
-from django.http import HttpResponse
-from typing import Optional
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers as rf_serializers
 
 from .models import Alerta, TipoAlerta, ConfiguracionAlerta
 from .serializers import (
     AlertaListSerializer, AlertaDetailSerializer, AlertaUpdateSerializer,
     TipoAlertaSerializer, ConfiguracionAlertaSerializer,
-    EstadisticasAlertasSerializer, GenerarAlertasSerializer
+    EstadisticasAlertasSerializer
 )
 from .services import ServicioAlertas
 from users.permissions import IsGerente
@@ -52,6 +48,11 @@ class AlertaListView(generics.ListAPIView):
         tipo = params.get('tipo')
         if tipo:
             queryset = queryset.filter(tipo_alerta__tipo=tipo)
+
+        # Filtro por subtipo (por_vencer | vencida)
+        subtipo = params.get('subtipo')
+        if subtipo:
+            queryset = queryset.filter(subtipo=subtipo)
 
         # Búsqueda por texto (título, mensaje o número de factura)
         buscar = params.get('buscar')
@@ -93,31 +94,13 @@ class AlertaDetailView(generics.RetrieveUpdateAPIView):
             alerta.save(update_fields=['fecha_procesada', 'usuario_procesado'])
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def marcar_alertas_leidas(request):
-    """Marcar alertas como leídas"""
-    alertas_ids = request.data.get('alertas_ids', [])
-    
-    if alertas_ids:
-        # Marcar alertas específicas
-        alertas_actualizadas = ServicioAlertas.marcar_alertas_como_leidas(
-            request.user, alertas_ids
-        )
-    else:
-        # Marcar todas las alertas nuevas como leídas
-        alertas_actualizadas = ServicioAlertas.marcar_alertas_como_leidas(
-            request.user
-        )
-    
-    return Response({
-        'mensaje': f'{alertas_actualizadas} alertas marcadas como leídas',
-        'alertas_actualizadas': alertas_actualizadas
-    })
-
-
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
+@extend_schema(
+    methods=['PATCH'],
+    request=AlertaUpdateSerializer,
+    responses=AlertaDetailSerializer,
+)
 def marcar_alerta_estado(request, pk):
     """Marcar una alerta como leída o no leída"""
     leida = request.data.get('leida', True)
@@ -134,30 +117,18 @@ def marcar_alerta_estado(request, pk):
     return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-@api_view(['PATCH'])
-@permission_classes([IsAuthenticated])
-def marcar_alertas_multiples(request):
-    """Marcar un conjunto de alertas como leídas o no leídas"""
-    ids = request.data.get('ids') or request.data.get('alertas_ids')
-    if not ids:
-        return Response({'detail': 'Debe incluir la lista de IDs'}, status=status.HTTP_400_BAD_REQUEST)
-
-    leida = bool(request.data.get('leida', True))
-    actualizadas = ServicioAlertas.cambiar_estado_multiple(
-        request.user,
-        alertas_ids=ids,
-        leida=leida
-    )
-
-    return Response({
-        'mensaje': 'Alertas actualizadas correctamente',
-        'alertas_actualizadas': actualizadas,
-        'leida': leida
-    }, status=status.HTTP_200_OK)
-
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@extend_schema(
+    methods=['GET'],
+    responses=inline_serializer(
+        name='AlertasRecientesResponse',
+        fields={
+            'count': rf_serializers.IntegerField(),
+            'results': AlertaListSerializer(many=True),
+        },
+    ),
+)
 def alertas_recientes(request):
     """Obtiene alertas recientes para el usuario autenticado"""
     desde_raw = request.query_params.get('desde')
@@ -181,6 +152,16 @@ def alertas_recientes(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@extend_schema(
+    methods=['GET'],
+    responses=inline_serializer(
+        name='AlertasContadorResponse',
+        fields={
+            'alertas_nuevas': rf_serializers.IntegerField(),
+            'alertas_criticas': rf_serializers.IntegerField(),
+        },
+    ),
+)
 def contador_alertas(request):
     """Obtener contador de alertas nuevas para el usuario"""
     user = request.user
@@ -190,20 +171,34 @@ def contador_alertas(request):
         estado='nueva'
     ).count()
     
-    alertas_criticas = Alerta.objects.filter(
+    # Contadores por subtipo
+    por_vencer = Alerta.objects.filter(
         usuario_destinatario=user,
         estado__in=['nueva', 'leida'],
-        prioridad='critica'
+        subtipo='por_vencer'
+    ).count()
+    vencidas = Alerta.objects.filter(
+        usuario_destinatario=user,
+        estado__in=['nueva', 'leida'],
+        subtipo='vencida'
     ).count()
     
     return Response({
         'alertas_nuevas': alertas_nuevas,
-        'alertas_criticas': alertas_criticas
+        # Compatibilidad: mantenemos 'alertas_criticas' mapeada a 'vencidas'
+        'alertas_criticas': vencidas,
+        # Nuevas llaves específicas
+        'alertas_por_vencer': por_vencer,
+        'alertas_vencidas': vencidas,
     })
 
 
 @api_view(['GET'])
 @permission_classes([IsGerente])
+@extend_schema(
+    methods=['GET'],
+    responses=EstadisticasAlertasSerializer,
+)
 def estadisticas_alertas(request):
     """Estadísticas generales de alertas - Solo gerentes"""
     
@@ -243,7 +238,6 @@ def estadisticas_alertas(request):
         'alertas_nuevas': alertas_nuevas,
         'alertas_criticas': alertas_criticas,
         'alertas_recientes': alertas_recientes,
-        'alertas_recientes': alertas_recientes,
         'alertas_por_tipo': alertas_por_tipo,
         'alertas_por_prioridad': alertas_por_prioridad,
         'alertas_por_dia': alertas_por_dia,
@@ -254,87 +248,7 @@ def estadisticas_alertas(request):
     return Response(serializer.data)
 
 
-@api_view(['POST'])
-@permission_classes([IsGerente])
-def generar_alertas_manual(request):
-    """Generar alertas manualmente - Solo gerentes"""
-    serializer = GenerarAlertasSerializer(data=request.data)
-    
-    if serializer.is_valid():
-        tipos = serializer.validated_data.get('tipos', [])  # type: ignore[attr-defined]
-        
-        if 'todas' in tipos:
-            resultados = ServicioAlertas.procesar_todas_las_alertas()
-        else:
-            resultados = {'detalle': {}, 'total_generadas': 0}
-            total_generadas = 0
-
-            if 'vencimiento' in tipos:
-                cant = ServicioAlertas.generar_alertas_vencimiento()
-                resultados['detalle']['vencimiento'] = cant
-                total_generadas += cant
-
-            resultados['total_generadas'] = total_generadas
-        
-        return Response({
-            'mensaje': 'Alertas generadas exitosamente',
-            'resultados': resultados
-        })
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def exportar_alertas(request):
-    """Exporta alertas del usuario autenticado según filtros"""
-    queryset = ServicioAlertas.obtener_alertas_usuario(request.user)
-
-    estado = request.query_params.get('estado')
-    if estado:
-        queryset = queryset.filter(estado=estado)
-
-    prioridad = request.query_params.get('prioridad')
-    if prioridad:
-        queryset = queryset.filter(prioridad=prioridad)
-
-    tipo = request.query_params.get('tipo')
-    if tipo:
-        queryset = queryset.filter(tipo_alerta__tipo=tipo)
-
-    formato = request.query_params.get('formato', 'csv')
-
-    if formato not in ['csv', 'xlsx']:
-        return Response({'detail': 'Formato no soportado'}, status=status.HTTP_400_BAD_REQUEST)
-
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow([
-        'ID', 'Título', 'Mensaje', 'Prioridad', 'Estado', 'Tipo',
-        'Factura', 'Cliente', 'Fecha Generación', 'Fecha Leída'
-    ])
-
-    for alerta in queryset:
-        alerta_id = getattr(alerta, 'pk', '')
-        tipo_nombre = ''
-        if alerta.tipo_alerta:
-            tipo_nombre = getattr(alerta.tipo_alerta, 'get_tipo_display', lambda: '')()
-        writer.writerow([
-            alerta_id,
-            alerta.titulo,
-            alerta.mensaje,
-            alerta.prioridad,
-            alerta.estado,
-            tipo_nombre,
-            alerta.factura.numero_factura if alerta.factura else '',
-            alerta.factura.cliente.nombre if alerta.factura and alerta.factura.cliente else '',
-            alerta.fecha_generacion.isoformat() if alerta.fecha_generacion else '',
-            alerta.fecha_leida.isoformat() if alerta.fecha_leida else ''
-        ])
-
-    response = HttpResponse(buffer.getvalue(), content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="alertas.csv"'
-    return response
+ 
 
 
 # Gestión de tipos de alertas (solo gerentes)

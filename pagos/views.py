@@ -1,8 +1,6 @@
-import csv
 from typing import Type, cast
 
-from django.db.models import QuerySet, Sum
-from django.http import StreamingHttpResponse
+from django.db.models import QuerySet
 from django.utils import timezone
 from rest_framework import filters, generics, status
 from rest_framework.decorators import api_view, permission_classes
@@ -13,7 +11,7 @@ from rest_framework.serializers import Serializer
 from rest_framework.response import Response
 
 from facturas.models import Factura
-from users.permissions import IsGerente, IsVendedor
+from users.permissions import IsGerente
 
 from .models import Pago, CuentaPago
 from .serializers import (
@@ -27,8 +25,6 @@ from .serializers import (
 )
 from .services import (
     filtrar_pagos_por_usuario,
-    generar_filas_exportacion,
-    obtener_estadisticas_dashboard,
     obtener_metodos_pago,
 )
 
@@ -152,70 +148,7 @@ def historial_pagos_factura(request, factura_id):
         )
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def resumen_pagos_cliente(request, cliente_id):
-    """Obtener resumen de pagos por cliente"""
-    user = request.user
-    
-    # Solo gerentes pueden ver resúmenes por cliente
-    if not user.groups.filter(name='Gerente').exists():
-        return Response(
-            {'error': 'Solo los gerentes pueden ver resúmenes por cliente'},
-            status=status.HTTP_403_FORBIDDEN
-        )
-    
-    # Obtener todas las facturas del cliente
-    facturas = Factura.objects.filter(cliente_id=cliente_id)
-    
-    if not facturas.exists():
-        return Response(
-            {'error': 'Cliente no encontrado o sin facturas'},
-            status=status.HTTP_404_NOT_FOUND
-        )
-    
-    # Calcular estadísticas
-    total_facturas = facturas.count()
-    valor_total_facturas = facturas.aggregate(Sum('valor_total'))['valor_total__sum'] or 0
-    
-    # Considerar solo pagos confirmados para consistencia con saldos
-    pagos = Pago.objects.filter(factura__cliente_id=cliente_id, estado='confirmado')
-    total_pagos = pagos.aggregate(Sum('valor_pagado'))['valor_pagado__sum'] or 0
-    
-    saldo_pendiente = valor_total_facturas - total_pagos
-    
-    facturas_por_estado = {
-        'pendiente': facturas.filter(estado='pendiente').count(),
-        'parcial': facturas.filter(estado='parcial').count(),
-        'pagada': facturas.filter(estado='pagada').count(),
-        'vencida': facturas.filter(estado='vencida').count(),
-    }
-    
-    # Pagos recientes (últimos 10)
-    pagos_recientes = pagos.order_by('-fecha_pago')[:10]
-    pagos_serializer = PagoListSerializer(pagos_recientes, many=True)
-    
-    return Response({
-        'cliente_id': cliente_id,
-        'resumen': {
-            'total_facturas': total_facturas,
-            'valor_total_facturas': valor_total_facturas,
-            'total_pagos': total_pagos,
-            'saldo_pendiente': saldo_pendiente,
-            'facturas_por_estado': facturas_por_estado
-        },
-        'pagos_recientes': pagos_serializer.data
-    })
-
-
-@api_view(['GET'])
-@permission_classes([IsGerente])
-def dashboard_pagos(request):
-    """Dashboard con estadísticas de pagos - Solo para gerentes"""
-    drf_request = cast(Request, request)
-    queryset = filtrar_pagos_por_usuario(drf_request.user, drf_request.query_params)
-    data = obtener_estadisticas_dashboard(queryset)
-    return Response(data)
+ 
 
 
 @api_view(['GET'])
@@ -322,33 +255,5 @@ def confirmar_pago(request, pk: int):
     return Response(detalle_serializer.data, status=status.HTTP_200_OK)
 
 
-class Echo:
-    """Helper para StreamingHttpResponse con csv.writer."""
+    
 
-    @staticmethod
-    def write(value):  # pragma: no cover - comportamiento trivial
-        return value
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def exportar_pagos(request):
-    """Exporta los pagos según filtros aplicados."""
-    formato = request.query_params.get('formato', 'excel').lower()
-    if formato not in {'excel', 'csv'}:
-        return Response({'error': 'Formato no soportado'}, status=status.HTTP_400_BAD_REQUEST)
-
-    drf_request = cast(Request, request)
-    queryset = filtrar_pagos_por_usuario(drf_request.user, drf_request.query_params).order_by('-fecha_pago')
-    filas = generar_filas_exportacion(queryset)
-
-    pseudo_buffer = Echo()
-    writer = csv.writer(pseudo_buffer)
-
-    response = StreamingHttpResponse(
-        (writer.writerow(fila) for fila in filas),
-        content_type='application/vnd.ms-excel',
-    )
-    timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
-    response['Content-Disposition'] = f'attachment; filename="reporte_pagos_{timestamp}.csv"'
-    return response

@@ -18,7 +18,7 @@ class AlertaListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Alerta
         fields = [
-            'id', 'titulo', 'mensaje', 'prioridad', 'estado',
+            'id', 'titulo', 'mensaje', 'subtipo', 'prioridad', 'estado',
             'tipo', 'tipo_alerta_nombre', 'factura_numero', 'cliente_nombre',
             'fecha_generacion', 'fecha_leida', 'fecha_procesada'
         ]
@@ -32,7 +32,7 @@ class AlertaDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Alerta
         fields = [
-            'id', 'tipo_alerta', 'factura', 'factura_info', 'titulo', 'mensaje',
+            'id', 'tipo_alerta', 'factura', 'factura_info', 'titulo', 'mensaje', 'subtipo',
             'prioridad', 'estado', 'datos_contexto',
             'fecha_generacion', 'fecha_leida', 'fecha_procesada',
             'usuario_procesado', 'usuario_procesado_nombre'
@@ -86,9 +86,8 @@ class ConfiguracionAlertaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConfiguracionAlerta
         fields = [
-            'id', 'tipo_alerta', 'tipo_alerta_info', 'recibir_email', 
-            'recibir_notificacion', 'dias_anticipacion_custom', 
-            'monto_minimo_custom', 'activa'
+            'id', 'tipo_alerta', 'tipo_alerta_info',
+            'recibir_notificacion', 'activa'
         ]
         read_only_fields = ['usuario']
     
@@ -97,7 +96,7 @@ class ConfiguracionAlertaSerializer(serializers.ModelSerializer):
             'id': obj.tipo_alerta.id,
             'nombre': obj.tipo_alerta.nombre,
             'tipo': obj.tipo_alerta.tipo,
-            'descripcion': obj.tipo_alerta.descripcion
+            # descripcion removida del modelo
         }
 
 class EstadisticasAlertasSerializer(serializers.Serializer):
@@ -110,13 +109,4 @@ class EstadisticasAlertasSerializer(serializers.Serializer):
     alertas_por_prioridad = serializers.DictField()
     alertas_por_dia = serializers.ListField(child=serializers.DictField(), required=False)
     tiempo_promedio_lectura = serializers.FloatField(allow_null=True)
-
-class GenerarAlertasSerializer(serializers.Serializer):
-    """Serializer para endpoint de generación manual de alertas"""
-    tipos = serializers.MultipleChoiceField(
-        choices=[
-            ('vencimiento', 'Vencimiento'),
-            ('todas', 'Todas')
-        ],
-        default=['todas']
-    )
+ 

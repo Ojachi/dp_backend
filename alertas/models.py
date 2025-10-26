@@ -6,28 +6,11 @@ class TipoAlerta(models.Model):
     """Tipos de alertas configurables"""
     TIPOS_ALERTAS = [
         ('vencimiento', 'Vencimiento de Factura'),
-        ('pago_parcial', 'Pago Parcial Recibido'),
-        ('sin_pagos', 'Sin Pagos por Tiempo Prolongado'),
-        ('monto_alto', 'Factura de Monto Alto'),
-        ('custom', 'Personalizada'),
     ]
     
     nombre = models.CharField(max_length=100)
     tipo = models.CharField(max_length=20, choices=TIPOS_ALERTAS)
-    descripcion = models.TextField()
     activa = models.BooleanField(default=True)
-    
-    # Configuraciones para alertas de vencimiento
-    dias_anticipacion = models.IntegerField(null=True, blank=True, 
-                                          help_text="Días antes del vencimiento para alertar")
-    
-    # Configuraciones para alertas de monto
-    monto_minimo = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True,
-                                     help_text="Monto mínimo para generar alerta")
-    
-    # Configuraciones para alertas de tiempo
-    dias_sin_actividad = models.IntegerField(null=True, blank=True,
-                                           help_text="Días sin actividad para alertar")
     
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
@@ -54,6 +37,10 @@ class Alerta(models.Model):
         ('procesada', 'Procesada'),
         ('descartada', 'Descartada'),
     ]
+    SUBTIPOS = [
+        ('por_vencer', 'Por vencer (<=5 días)'),
+        ('vencida', 'Vencida'),
+    ]
     
     tipo_alerta = models.ForeignKey(TipoAlerta, on_delete=models.CASCADE, related_name='alertas')
     factura = models.ForeignKey(Factura, on_delete=models.CASCADE, related_name='alertas')
@@ -63,6 +50,7 @@ class Alerta(models.Model):
     
     titulo = models.CharField(max_length=200)
     mensaje = models.TextField()
+    subtipo = models.CharField(max_length=20, choices=SUBTIPOS, default='por_vencer')
     prioridad = models.CharField(max_length=10, choices=PRIORIDADES, default='media')
     estado = models.CharField(max_length=15, choices=ESTADOS, default='nueva')
     
@@ -83,6 +71,7 @@ class Alerta(models.Model):
             models.Index(fields=['usuario_destinatario', 'estado']),
             models.Index(fields=['factura', 'estado']),
             models.Index(fields=['prioridad', 'fecha_generacion']),
+            models.Index(fields=['subtipo', 'fecha_generacion']),
         ]
     
     def __str__(self):
@@ -116,12 +105,7 @@ class ConfiguracionAlerta(models.Model):
     tipo_alerta = models.ForeignKey(TipoAlerta, on_delete=models.CASCADE)
     
     # Configuración personalizada
-    recibir_email = models.BooleanField(default=False)
     recibir_notificacion = models.BooleanField(default=True)
-    
-    # Override de configuraciones del tipo de alerta
-    dias_anticipacion_custom = models.IntegerField(null=True, blank=True)
-    monto_minimo_custom = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     
     activa = models.BooleanField(default=True)
     creado = models.DateTimeField(auto_now_add=True)

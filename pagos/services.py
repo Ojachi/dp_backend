@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from datetime import timedelta
-from typing import Dict, Iterable, List
+from typing import Dict, List
 
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count, QuerySet, Sum
-from django.db.models.functions import TruncDate
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from facturas.models import Factura
@@ -145,88 +143,4 @@ def crear_pago_para_factura(user, factura: Factura, validated_data: Dict[str, ob
     return Pago.objects.create(**campos_creacion)
 
 
-def obtener_estadisticas_dashboard(queryset: QuerySet[Pago]) -> Dict[str, object]:
-    """Construye la estructura del dashboard de pagos."""
-    # Considerar solo pagos confirmados para métricas
-    queryset = queryset.filter(estado='confirmado')
-    hoy = timezone.now()
-    inicio_mes = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    rango_semana = hoy - timedelta(days=6)
-
-    total_pagos = queryset.count()
-    monto_total = queryset.aggregate(total=Sum("valor_pagado"))[
-        "total"
-    ] or 0
-
-    pagos_mes = queryset.filter(fecha_pago__gte=inicio_mes)
-    pagos_mes_count = pagos_mes.count()
-    pagos_mes_monto = pagos_mes.aggregate(total=Sum("valor_pagado"))["total"] or 0
-
-    pagos_por_tipo: Dict[str, Dict[str, object]] = {}
-    for tipo, nombre in Pago.TIPOS_PAGO:
-        datos_tipo = queryset.filter(tipo_pago=tipo)
-        pagos_por_tipo[tipo] = {
-            "nombre": nombre,
-            "cantidad": datos_tipo.count(),
-            "monto": datos_tipo.aggregate(total=Sum("valor_pagado"))["total"] or 0,
-        }
-
-    tendencia = (
-        queryset.filter(fecha_pago__date__gte=rango_semana.date())
-        .annotate(fecha=TruncDate("fecha_pago"))
-        .values("fecha")
-        .annotate(pagos=Count("id"), monto=Sum("valor_pagado"))
-        .order_by("fecha")
-    )
-
-    tendencia_list = [
-        {
-            "fecha": registro["fecha"].isoformat(),
-            "pagos": registro["pagos"],
-            "monto": registro["monto"] or 0,
-        }
-        for registro in tendencia
-    ]
-
-    return {
-        "estadisticas_generales": {
-            "total_pagos": total_pagos,
-            "monto_total": monto_total,
-        },
-        "pagos_mes_actual": {
-            "cantidad": pagos_mes_count,
-            "monto": pagos_mes_monto,
-        },
-        "pagos_por_metodo": pagos_por_tipo,
-        "tendencia_semanal": tendencia_list,
-    }
-
-
-def generar_filas_exportacion(queryset: QuerySet[Pago]) -> Iterable[List[object]]:
-    """Genera filas para exportar pagos en formato tabular."""
-    yield [
-        "ID",
-        "Fecha pago",
-        "Factura",
-        "Cliente",
-        "Valor pagado",
-        "Tipo pago",
-        "Número comprobante",
-        "Registrado por",
-        "Código",
-        "Cuenta",
-    ]
-
-    for pago in queryset.iterator():
-        yield [
-            pago.id,  # type: ignore[attr-defined]
-            pago.fecha_pago.isoformat(),
-            pago.factura.numero_factura,
-            pago.factura.cliente.nombre,
-            float(pago.valor_pagado),
-            pago.get_tipo_pago_display(),  # type: ignore[attr-defined]
-            pago.numero_comprobante or "",
-            pago.usuario_registro.get_full_name() if pago.usuario_registro else "",
-            pago.codigo or "",
-            (pago.cuenta.nombre if pago.cuenta else ""),
-        ]
+ 

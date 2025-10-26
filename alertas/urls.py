@@ -5,16 +5,12 @@ urlpatterns = [
     # Gestión de alertas del usuario
     path('', views.AlertaListView.as_view(), name='alerta-list'),
     path('<int:pk>/', views.AlertaDetailView.as_view(), name='alerta-detail'),
-    path('marcar-leidas/', views.marcar_alertas_leidas, name='marcar-alertas-leidas'),
     path('<int:pk>/marcar-leida/', views.marcar_alerta_estado, name='alerta-marcar-leida'),
-    path('leer-multiples/', views.marcar_alertas_multiples, name='alerta-leer-multiples'),
     path('contador/', views.contador_alertas, name='contador-alertas'),
     path('recientes/', views.alertas_recientes, name='alertas-recientes'),
-    path('exportar/', views.exportar_alertas, name='alertas-exportar'),
     
     # Gestión administrativa (solo gerentes)
     path('estadisticas/', views.estadisticas_alertas, name='estadisticas-alertas'),
-    path('generar/', views.generar_alertas_manual, name='generar-alertas'),
     
     # Tipos de alertas (solo gerentes)
     path('tipos/', views.TipoAlertaListCreateView.as_view(), name='tipo-alerta-list'),
